@@ -12,6 +12,7 @@ export default class ChatModule extends TwitchModule {
 	static readonly SEVENTV_CHAT_SELECTOR = "main.seventv-chat-list";
 	static readonly VALID_MESSAGE_TYPES_IDS = [0];
 	static readonly LINK_MESSAGE_ID = 51;
+	static readonly IGNORED_MESSAGE_TYPE_IDS = [25];
 
 	private listener = {} as ChatMessageListener;
 	private observer: MutationObserver | undefined;
@@ -154,6 +155,8 @@ export default class ChatModule extends TwitchModule {
 					queueKey: message.id,
 				});
 			}
+		} else if (ChatModule.IGNORED_MESSAGE_TYPE_IDS.includes(message.type)) {
+			return;
 		} else {
 			this.logger.warn(`Unknown message with id: ${message.type}`, message);
 		}
