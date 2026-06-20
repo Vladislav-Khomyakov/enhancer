@@ -229,11 +229,11 @@ const TooltipContent = styled.div<{ $interactive: boolean; $maxWidth: number; po
 	${({ position }) => {
 		switch (position) {
 			case "top":
-				return "transform: translateX(-50%);";
+				return "transform: translate(-50%, -100%);";
 			case "bottom":
 				return "transform: translateX(-50%);";
 			case "left":
-				return "transform: translateY(-50%);";
+				return "transform: translate(-100%, -50%);";
 			case "right":
 				return "transform: translateY(-50%);";
 			default:
@@ -246,11 +246,11 @@ const TooltipContent = styled.div<{ $interactive: boolean; $maxWidth: number; po
 			transform: ${({ position }) => {
 				switch (position) {
 					case "top":
-						return "translateX(-50%) translateY(4px)";
+						return "translate(-50%, calc(-100% + 4px))";
 					case "bottom":
 						return "translateX(-50%) translateY(-4px)";
 					case "left":
-						return "translateY(-50%) translateX(4px)";
+						return "translate(calc(-100% + 4px), -50%)";
 					case "right":
 						return "translateY(-50%) translateX(-4px)";
 					default:
@@ -262,12 +262,14 @@ const TooltipContent = styled.div<{ $interactive: boolean; $maxWidth: number; po
 			opacity: 1;
 			transform: ${({ position }) => {
 				switch (position) {
-					case "top":
 					case "bottom":
 						return "translateX(-50%) translateY(0)";
-					case "left":
 					case "right":
 						return "translateY(-50%) translateX(0)";
+					case "top":
+						return "translate(-50%, -100%)";
+					case "left":
+						return "translate(-100%, -50%)";
 					default:
 						return "translateX(-50%) translateY(0)";
 				}

@@ -962,7 +962,7 @@ const ModeratorCountersComponent = ({
 				}
 				interactive
 				maxWidth={400}
-				position="right"
+				position="top"
 			>
 				<ModeratorCounter onClick={refresh}>
 					({mainChattersValue}) [{viewersValue} ({chattersValue})]
