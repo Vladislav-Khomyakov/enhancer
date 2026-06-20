@@ -8,7 +8,7 @@ export default class TwitchApi {
 	private readonly TWITCH_GQL_ENDPOINT = "https://gql.twitch.tv/gql";
 	private readonly TWITCH_GQL_ENDPOINT1 = "a2QxdW5iNGIzcTR0NThmd2xwY2J6Y2JubTc2YThmcA==";
 
-	async gql<T>(query: string, variables: Record<string, string>) {
+	async gql<T>(query: string, variables: Record<string, unknown>) {
 		return new Promise<GQLResponse<T>>((resolve, reject) =>
 			fetch(this.TWITCH_GQL_ENDPOINT, {
 				method: "POST",

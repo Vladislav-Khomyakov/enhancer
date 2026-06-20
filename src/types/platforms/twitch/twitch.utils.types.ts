@@ -222,6 +222,36 @@ export type UserChatInfo = {
 	primaryColorHex: string;
 };
 
+export type CollaborativeViewer = {
+	login: string;
+	displayName: string;
+	profileImageURL: string;
+	viewersCount: number;
+};
+
+export type ChannelSocialLink = {
+	name: string;
+	title: string;
+	url: string;
+};
+
+export type ChannelPanel = {
+	id: string;
+	title: string | null;
+	description: string | null;
+	imageURL: string | null;
+	linkURL: string | null;
+};
+
+export type ChannelDescription = {
+	login: string;
+	displayName: string;
+	profileImageURL: string;
+	description: string | null;
+	socialLinks: ChannelSocialLink[];
+	panels: ChannelPanel[];
+};
+
 export type CurrentLiveStatusComponent = {
 	props: {
 		autoplay: boolean;

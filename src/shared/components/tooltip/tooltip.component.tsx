@@ -8,6 +8,8 @@ interface TooltipComponentProps {
 	content: ComponentChildren;
 	position?: "top" | "bottom" | "left" | "right";
 	delay?: number;
+	maxWidth?: number;
+	interactive?: boolean;
 }
 
 const TOOLTIP_SHOW_EVENT = "ENHANCER_TOOLTIP";
@@ -72,13 +74,20 @@ export function useTooltipPosition(
 	}, [isVisible, position]);
 }
 
-export function TooltipComponent({ children, content, position = "top", delay = 300 }: TooltipComponentProps) {
+export function TooltipComponent({
+	children,
+	content,
+	position = "top",
+	delay = 300,
+	maxWidth = 300,
+	interactive = false,
+}: TooltipComponentProps) {
 	const [isVisible, setIsVisible] = useState(false);
-	const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
 	const [actualPosition, setActualPosition] = useState(position);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const tooltipRef = useRef<HTMLDivElement>(null);
 	const idRef = useRef(++tooltipIdCounter);
+	const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
 	const calculatePosition = useCallback(() => {
 		if (!containerRef.current || !tooltipRef.current) return;
@@ -125,20 +134,34 @@ export function TooltipComponent({ children, content, position = "top", delay = 
 		setActualPosition(newPosition);
 	}, [position]);
 
+	const clearTooltipTimeout = useCallback(() => {
+		if (timeoutRef.current) clearTimeout(timeoutRef.current);
+	}, []);
+
 	const showTooltip = useCallback(() => {
-		if (timeoutId) clearTimeout(timeoutId);
+		clearTooltipTimeout();
 		window.dispatchEvent(new CustomEvent(TOOLTIP_SHOW_EVENT, { detail: idRef.current }));
-		const id = setTimeout(() => {
+		timeoutRef.current = setTimeout(() => {
 			setIsVisible(true);
 			setTimeout(calculatePosition, 0);
 		}, delay);
-		setTimeoutId(id);
-	}, [timeoutId, delay, calculatePosition]);
+	}, [clearTooltipTimeout, delay, calculatePosition]);
+
+	const keepTooltipVisible = useCallback(() => {
+		clearTooltipTimeout();
+		setIsVisible(true);
+	}, [clearTooltipTimeout]);
 
 	const hideTooltip = useCallback(() => {
-		if (timeoutId) clearTimeout(timeoutId);
-		setIsVisible(false);
-	}, [timeoutId]);
+		clearTooltipTimeout();
+		if (!interactive) {
+			setIsVisible(false);
+			return;
+		}
+		timeoutRef.current = setTimeout(() => setIsVisible(false), 150);
+	}, [clearTooltipTimeout, interactive]);
+
+	useEffect(() => clearTooltipTimeout, [clearTooltipTimeout]);
 
 	useEffect(() => {
 		const handler = (e: Event) => {
@@ -169,7 +192,14 @@ export function TooltipComponent({ children, content, position = "top", delay = 
 			{children}
 			{isVisible &&
 				createPortal(
-					<TooltipContent ref={tooltipRef} position={actualPosition}>
+					<TooltipContent
+						$interactive={interactive}
+						$maxWidth={maxWidth}
+						onMouseEnter={interactive ? keepTooltipVisible : undefined}
+						onMouseLeave={interactive ? hideTooltip : undefined}
+						ref={tooltipRef}
+						position={actualPosition}
+					>
 						<TooltipArrow position={actualPosition} />
 						<TooltipInner>{content}</TooltipInner>
 					</TooltipContent>,
@@ -184,7 +214,7 @@ const TooltipContainer = styled.div`
 	display: inline-block;
 `;
 
-const TooltipContent = styled.div<{ position: string }>`
+const TooltipContent = styled.div<{ $interactive: boolean; $maxWidth: number; position: string }>`
 	position: fixed;
 	z-index: 99999999999;
 	background: rgba(25, 25, 28, 0.8);
@@ -192,9 +222,9 @@ const TooltipContent = styled.div<{ position: string }>`
 	border-radius: 8px;
 	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 	backdrop-filter: blur(8px);
-	pointer-events: none;
+	pointer-events: ${({ $interactive }) => ($interactive ? "auto" : "none")};
 	animation: tooltipFadeIn 0.2s ease-out;
-	max-width: 300px;
+	max-width: ${({ $maxWidth }) => $maxWidth}px;
 	word-wrap: break-word;
 	${({ position }) => {
 		switch (position) {
