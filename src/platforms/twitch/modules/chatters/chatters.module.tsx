@@ -83,10 +83,14 @@ export default class ChattersModule extends TwitchModule {
 	private hasModeratorCounter = false;
 
 	private updateInterval: NodeJS.Timeout | undefined;
+	private channelDiscoveryTimer: NodeJS.Timeout | undefined;
 	private lastUpdatedAt = 0;
+	private lastKnownLogins = new Set<string>();
+	private refreshingChatters = false;
 
 	private static INDIVIDUAL_CHATTERS_COMPONENT_WRAPPER_CLASS = "enhancer-chat-counter-wrapper";
 	private static UPDATE_INTERVAL_TIME = 30000;
+	private static CHANNEL_DISCOVERY_INTERVAL_TIME = 5000;
 
 	private findUsernameFromStatusIndicator(el?: Element | null): string | null {
 		const container = el?.parentElement?.parentElement?.parentElement;
@@ -120,6 +124,7 @@ export default class ChattersModule extends TwitchModule {
 		this.requestUpdate();
 		if (this.updateInterval) clearInterval(this.updateInterval);
 		this.updateInterval = setInterval(() => this.requestUpdate(), ChattersModule.UPDATE_INTERVAL_TIME);
+		this.startChannelDiscovery();
 
 		wrappers.forEach((element) => {
 			if (isModeratorCounter) {
@@ -186,73 +191,117 @@ export default class ChattersModule extends TwitchModule {
 	}
 
 	private async refreshChatters(loginsToUpdate: string[] = []) {
-		await this.commonUtils().waitFor(
-			() => this.getLoginsOrIsAllowedPage(),
-			async (channelList) => {
-				const uniqueLogins = this.getUniqueLogins(channelList === true ? undefined : channelList);
-				this.logger.debug("Refreshing chatters for", uniqueLogins);
+		if (this.refreshingChatters) return false;
+		this.refreshingChatters = true;
 
-				const logins =
-					loginsToUpdate.length > 0 ? uniqueLogins.filter((login) => loginsToUpdate.includes(login)) : uniqueLogins;
+		try {
+			return await this.commonUtils().waitFor(
+				() => this.getLoginsOrIsAllowedPage(),
+				async (channelList) => {
+					const uniqueLogins = this.getUniqueLogins(channelList === true ? undefined : channelList);
+					this.logger.debug("Refreshing chatters for", uniqueLogins);
 
-				await Promise.all(
-					logins.map(async (login) => {
-						try {
-							const { data } = await this.twitchApi().gql<ChattersResponse>(ChattersQuery, {
-								name: login.toLowerCase(),
-							});
-							const counter = this.getOrCreateCounter(login, data.channel.chatters.count);
-							counter.value = data.channel.chatters.count;
-							this.logger.info(`Refreshed chatters for ${login}`, counter.value);
-						} catch (error) {
-							this.logger.warn(`Failed to fetch chatters for ${login}`, error);
+					const logins =
+						loginsToUpdate.length > 0 ? uniqueLogins.filter((login) => loginsToUpdate.includes(login)) : uniqueLogins;
+
+					await Promise.all(
+						logins.map(async (login) => {
+							try {
+								const { data } = await this.twitchApi().gql<ChattersResponse>(ChattersQuery, {
+									name: login.toLowerCase(),
+								});
+								const counter = this.getOrCreateCounter(login, data.channel.chatters.count);
+								counter.value = data.channel.chatters.count;
+								this.logger.info(`Refreshed chatters for ${login}`, counter.value);
+							} catch (error) {
+								this.logger.warn(`Failed to fetch chatters for ${login}`, error);
+							}
+						}),
+					);
+
+					for (const activeLogin of Object.keys(this.chattersCounters)) {
+						if (!uniqueLogins.includes(activeLogin)) {
+							delete this.chattersCounters[activeLogin];
 						}
-					}),
-				);
-
-				for (const activeLogin of Object.keys(this.chattersCounters)) {
-					if (!uniqueLogins.includes(activeLogin)) {
-						delete this.chattersCounters[activeLogin];
 					}
-				}
 
-				this.updateTotalChattersCounter();
-				this.lastUpdatedAt = Date.now();
-				return true;
-			},
-			{ delay: 1000, maxRetries: 5, initialDelay: 30 },
-		);
+					this.updateTotalChattersCounter();
+					this.lastKnownLogins = new Set(uniqueLogins);
+					this.lastUpdatedAt = Date.now();
+					return true;
+				},
+				{ delay: 1000, maxRetries: 5, initialDelay: 30 },
+			);
+		} finally {
+			this.refreshingChatters = false;
+		}
 	}
 
 	private getLoginsOrIsAllowedPage() {
 		const logins = this.getLogins();
-		if (logins.length > 0) return logins;
-		return this.twitchUtils().isDirectTwitchPlayer() || this.twitchUtils().isModeratorView() || undefined;
+		if (logins?.length) return logins;
+		return (
+			this.twitchUtils().isDirectTwitchPlayer() ||
+			this.twitchUtils().isModeratorView() ||
+			this.isStreamManagerPage() ||
+			undefined
+		);
 	}
 
-	private getLogins(): string[] {
+	private isStreamManagerPage() {
+		return window.location.pathname.includes("/stream-manager");
+	}
+
+	private getLogins(): string[] | undefined {
 		const streamInfo = this.twitchUtils().getStreamInfo();
-		const sharedChatLogins = Array.from(
-			this.twitchUtils().getChatInfo()?.props.sharedChatDataByChannelID.values() ?? [],
-		)
+		const sharedChatLogins = [...(this.twitchUtils().getChatInfo()?.props.sharedChatDataByChannelID.values() ?? [])]
 			.filter((channel) => channel.status === "ACTIVE")
 			.map((channel) => channel.login);
-		const organizerLogin = streamInfo?.channelLogin;
-		const costreamerLogins = streamInfo?.costreamDetails?.topCostreamers.map((streamer) => streamer.login) ?? [];
-		const guestStarLogins = streamInfo?.guestStarGuests.map((guest) => guest.user.login) ?? [];
-		const allLoginsWithDuplicates = [
-			this.twitchUtils().getCurrentChannelByUrl(),
-			organizerLogin,
-			...costreamerLogins,
-			...guestStarLogins,
-			...sharedChatLogins,
-		];
+		const streamLogins = streamInfo
+			? [
+					streamInfo.channelLogin,
+					...(streamInfo.costreamDetails?.topCostreamers.map((streamer) => streamer.login) ?? []),
+					...(streamInfo.guestStarGuests ?? []).map((guest) => guest.user.login),
+					...(streamInfo.guestList ?? []).map((guest) => guest.user.login),
+				]
+			: [];
+		const allLoginsWithDuplicates = [...streamLogins, ...sharedChatLogins];
 		const validLogins = allLoginsWithDuplicates.filter((login): login is string => login != null);
-		return Array.from(new Set(validLogins));
+		const uniqueLogins = Array.from(new Set(validLogins));
+		return uniqueLogins.length > 0 ? uniqueLogins : undefined;
+	}
+
+	private startChannelDiscovery() {
+		if (this.channelDiscoveryTimer) return;
+
+		let burstChecksLeft = 4;
+		const check = async () => {
+			await this.refreshIfChannelsChanged();
+			const isBurst = burstChecksLeft > 0;
+			burstChecksLeft = Math.max(0, burstChecksLeft - 1);
+			this.channelDiscoveryTimer = setTimeout(check, isBurst ? 1000 : ChattersModule.CHANNEL_DISCOVERY_INTERVAL_TIME);
+		};
+
+		void check();
+	}
+
+	private async refreshIfChannelsChanged() {
+		const channelList = this.getLoginsOrIsAllowedPage();
+		if (channelList === undefined) return;
+
+		const uniqueLogins = this.getUniqueLogins(channelList === true ? undefined : channelList);
+		if (
+			uniqueLogins.length === this.lastKnownLogins.size &&
+			uniqueLogins.every((login) => this.lastKnownLogins.has(login))
+		) {
+			return;
+		}
+
+		await this.refreshChatters(uniqueLogins);
 	}
 
 	private async refreshCollaborativeViewers() {
-		const logins = this.getLogins();
+		const logins = this.getUniqueLogins(this.getLogins());
 		if (logins.length === 0) return;
 		const mainLogin = this.twitchUtils().getCurrentChannelByUrl();
 
@@ -348,6 +397,7 @@ export default class ChattersModule extends TwitchModule {
 
 	private async reloadCounters() {
 		if (!(await this.isModuleEnabled())) return;
+		this.lastKnownLogins.clear();
 		Object.values(this.chattersCounters).forEach((counter) => {
 			counter.value = ChattersModule.LOADING_VALUE;
 		});
@@ -363,6 +413,10 @@ const Wrapper = styled.span`
 	color: #ff8280;
 	font-weight: 600 !important;
 	white-space: nowrap;
+
+	html.tw-root--theme-light & {
+		color: #b4232a;
+	}
 
 	&:hover {
 		opacity: 0.75;

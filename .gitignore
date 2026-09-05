@@ -4,3 +4,5 @@ dist
 !.idea/icon.svg
 *.zip
 tsconfig.tsbuildinfo
+.playwright-mcp
+start-brave-mcp.sh

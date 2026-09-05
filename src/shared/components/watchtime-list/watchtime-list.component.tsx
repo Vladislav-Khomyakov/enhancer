@@ -1,3 +1,4 @@
+import { Logger } from "$shared/logger/logger.ts";
 import type WorkerService from "$shared/worker/worker.service.ts";
 import type { CommonEvents } from "$types/platforms/common.events.ts";
 import type { PlatformType } from "$types/shared/worker/worker.types.ts";
@@ -5,101 +6,105 @@ import type { Emitter } from "nanoevents";
 import { useEffect, useState } from "preact/hooks";
 import styled from "styled-components";
 
+const logger = new Logger({ context: "watchtime-list" });
+
 const Container = styled.div`
-	padding: 0;
 	line-height: 1.6;
-	color: #ccc;
+	color: var(--settings-text);
 	width: 100%;
-	max-width: none;
+	background: var(--settings-surface);
+	border: 1px solid var(--settings-border);
+	border-radius: 12px;
+	overflow: hidden;
 `;
 
 const Header = styled.div`
-	padding: 20px 30px;
-	background: linear-gradient(
-		135deg,
-		rgba(145, 71, 255, 0.1) 0%,
-		rgba(145, 71, 255, 0.05) 100%
-	);
-	border-radius: 12px;
-	border: 1px solid rgba(145, 71, 255, 0.2);
+	padding: 16px 18px;
 `;
 
 const TitleSection = styled.div`
 	display: flex;
-	flex-direction: column;
 	align-items: center;
-	text-align: center;
+	justify-content: space-between;
+	gap: 16px;
 	cursor: pointer;
-	transition: all 0.2s ease;
-
-	&:hover {
-		transform: translateY(-1px);
-	}
 `;
 
-const Title = styled.h1`
-	color: #9147ff;
-	margin: 0 0 4px 0;
-	font-size: 20px;
-	font-weight: 700;
-	text-shadow: 0 0 20px rgba(145, 71, 255, 0.3);
+const TitleGroup = styled.div`
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+`;
+
+const Title = styled.span`
+	color: var(--settings-text-strong);
+	font-size: 13px;
+	font-weight: 500;
 `;
 
 const ActionText = styled.span`
-	color: #999;
-	font-size: 11px;
-	font-weight: 500;
-	transition: color 0.2s ease;
+	color: var(--settings-text-muted);
+	font-size: 11.5px;
+	transition: color 0.15s ease;
 
 	${TitleSection}:hover & {
-		color: #b147ff;
+		color: #9147ff;
+	}
+`;
+
+const Chevron = styled.span<{ $expanded: boolean }>`
+	color: var(--settings-text-muted);
+	flex-shrink: 0;
+	display: flex;
+	transition: transform 0.2s ease, color 0.15s ease;
+	transform: rotate(${(props) => (props.$expanded ? "180deg" : "0deg")});
+
+	${TitleSection}:hover & {
+		color: #9147ff;
 	}
 `;
 
 const ExportSection = styled.div<{ $visible: boolean }>`
 	display: ${(props) => (props.$visible ? "flex" : "none")};
-	margin-top: 20px;
-	gap: 12px;
-	justify-content: center;
-	margin-bottom: 20px;
-	padding: 0 20px;
+	gap: 8px;
+	justify-content: flex-end;
+	padding: 0 18px 14px;
 `;
 
 const ExportButton = styled.button`
-	background: rgba(145, 71, 255, 0.1);
-	border: 1px solid rgba(145, 71, 255, 0.3);
-	color: #9147ff;
-	padding: 8px 16px;
-	border-radius: 6px;
-	font-size: 10px;
-	font-weight: 600;
+	background: var(--settings-control-background);
+	border: 1px solid var(--settings-control-border);
+	color: var(--settings-text);
+	padding: 7px 14px;
+	border-radius: 8px;
+	font-size: 11px;
+	font-weight: 500;
 	cursor: pointer;
-	transition: all 0.2s ease;
+	transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 
 	&:hover:not(:disabled) {
-		background: rgba(145, 71, 255, 0.2);
-		border-color: rgba(145, 71, 255, 0.4);
-		transform: translateY(-1px);
+		border-color: #9147ff;
+		color: #9147ff;
+		background: var(--settings-control-hover);
 	}
 
 	&:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
-		transform: none;
 	}
 `;
 
 const Content = styled.div<{ $visible: boolean }>`
-	padding: 0 20px;
+	padding: 0 18px 18px;
 	display: ${(props) => (props.$visible ? "block" : "none")};
 `;
 
 const TableContainer = styled.div`
-	background: rgba(255, 255, 255, 0.02);
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	border-radius: 12px;
+	background: var(--settings-control-background);
+	border: 1px solid var(--settings-border);
+	border-radius: 10px;
 	overflow: hidden;
-	margin-bottom: 25px;
 `;
 
 const Table = styled.table`
@@ -108,36 +113,33 @@ const Table = styled.table`
 `;
 
 const TableHeader = styled.thead`
-	background: rgba(145, 71, 255, 0.1);
+	background: var(--settings-control-hover);
 `;
 
 const TableHeaderRow = styled.tr`
-	border-bottom: 1px solid rgba(145, 71, 255, 0.2);
+	border-bottom: 1px solid var(--settings-border);
 `;
 
 const TableHeaderCell = styled.th`
-	padding: 16px 20px;
+	padding: 12px 16px;
 	text-align: left;
 	color: #9147ff;
-	font-size: 12px;
+	font-size: 11px;
 	font-weight: 600;
-	border-right: 1px solid rgba(255, 255, 255, 0.05);
-
-	&:last-child {
-		border-right: none;
-	}
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
 `;
 
 const PositionHeaderCell = styled(TableHeaderCell)`
-	width: 80px;
+	width: 64px;
 	text-align: center;
 `;
 
 const TableBody = styled.tbody``;
 
 const TableRow = styled.tr`
-	border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-	transition: all 0.2s ease;
+	border-bottom: 1px solid var(--settings-divider-subtle);
+	transition: background 0.15s ease;
 
 	&:hover {
 		background: rgba(145, 71, 255, 0.05);
@@ -149,36 +151,29 @@ const TableRow = styled.tr`
 `;
 
 const TableCell = styled.td`
-	padding: 14px 20px;
-	font-size: 11px;
-	color: #e0e0e0;
-	border-right: 1px solid rgba(255, 255, 255, 0.05);
-
-	&:last-child {
-		border-right: none;
-	}
+	padding: 11px 16px;
+	font-size: 11.5px;
+	color: var(--settings-text);
 `;
 
 const PositionCell = styled(TableCell)`
 	text-align: center;
-	color: #999;
+	color: var(--settings-text-dim);
 	font-weight: 600;
-	width: 80px;
+	width: 64px;
 `;
 
 const UsernameCell = styled(TableCell)`
-	color: #9147ff;
-	font-weight: 600;
-	font-size: 12px;
+	font-weight: 500;
 `;
 
 const UsernameLink = styled.a`
-	color: #b887ff !important;
+	color: #9147ff !important;
 	text-decoration: none;
-	transition: all 0.2s ease;
+	transition: color 0.15s ease;
 
 	&:hover {
-		color: #b147ff;
+		color: #b887ff;
 		text-decoration: underline;
 	}
 `;
@@ -187,45 +182,60 @@ const PaginationSection = styled.div`
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	gap: 15px;
-	margin-top: 25px;
+	gap: 12px;
+	margin-top: 16px;
 `;
 
 const PageButton = styled.button`
-	background: rgba(145, 71, 255, 0.1);
-	border: 1px solid rgba(145, 71, 255, 0.3);
-	color: #9147ff;
-	padding: 8px 16px;
-	border-radius: 6px;
+	background: var(--settings-control-background);
+	border: 1px solid var(--settings-control-border);
+	color: var(--settings-text);
+	padding: 7px 14px;
+	border-radius: 8px;
 	font-size: 11px;
-	font-weight: 600;
+	font-weight: 500;
 	cursor: pointer;
-	transition: all 0.2s ease;
+	transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
 
 	&:hover:not(:disabled) {
-		background: rgba(145, 71, 255, 0.2);
-		border-color: rgba(145, 71, 255, 0.4);
-		transform: translateY(-1px);
+		border-color: #9147ff;
+		color: #9147ff;
+		background: var(--settings-control-hover);
 	}
 
 	&:disabled {
-		opacity: 0.3;
+		opacity: 0.35;
 		cursor: not-allowed;
-		transform: none;
 	}
 `;
 
 const PageInfo = styled.span`
-	color: #ccc;
+	color: var(--settings-text-muted);
 	font-size: 11px;
 `;
 
 const LoadingText = styled.div`
 	text-align: center;
-	color: #999;
-	font-size: 11px;
-	padding: 20px;
+	color: var(--settings-text-muted);
+	font-size: 11.5px;
+	padding: 24px;
 `;
+
+const ChevronIcon = () => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		width="16"
+		height="16"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		strokeLinejoin="round"
+	>
+		<path d="M6 9l6 6 6-6" />
+	</svg>
+);
 
 export interface PaginatedWatchtimeResponse {
 	data: WatchtimeRecord[];
@@ -289,7 +299,7 @@ export function WatchtimeListComponent({
 			}
 			return allData;
 		} catch (error) {
-			console.error("Error fetching all watchtime data:", error);
+			logger.error("Error fetching all watchtime data:", error);
 			return allData;
 		}
 	};
@@ -408,8 +418,13 @@ export function WatchtimeListComponent({
 		<Container>
 			<Header>
 				<TitleSection onClick={() => setExpanded(!expanded)}>
-					<Title>Watchtime List</Title>
-					<ActionText>{expanded ? "Click to hide" : "Click to see your watchtime"}</ActionText>
+					<TitleGroup>
+						<Title>Watchtime List</Title>
+						<ActionText>{expanded ? "Click to hide" : "Click to see your watchtime"}</ActionText>
+					</TitleGroup>
+					<Chevron $expanded={expanded}>
+						<ChevronIcon />
+					</Chevron>
 				</TitleSection>
 			</Header>
 

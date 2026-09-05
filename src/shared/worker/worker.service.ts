@@ -1,4 +1,9 @@
 import { Logger } from "$shared/logger/logger.ts";
+import type { LogEntry } from "$types/shared/logger.types.ts";
+import type {
+	CachedAggregateSeed,
+	EnhancerApiSeedRequestPayload,
+} from "$types/shared/worker/enhancer-api-worker.types.ts";
 import type {
 	ExtensionMessageDetail,
 	ExtensionResponseDetail,
@@ -10,19 +15,25 @@ import type {
 export default class WorkerService {
 	private readonly logger = new Logger({ context: "worker" });
 	private readonly element: HTMLElement;
-	private pendingMessages = new Map<string, (response: any) => void>();
+	private pendingMessages = new Map<string, { resolve: (response: any) => void; reject: (error: Error) => void }>();
 	private pingInterval: number | null = null;
 	private broadcastHandlers = new Map<string, Set<(payload: any) => void>>();
+	private restartHandlers = new Set<() => void>();
+	private enhancerApiSeedHandlers = new Set<
+		(topic: EnhancerApiSeedRequestPayload["topic"]) => CachedAggregateSeed | null
+	>();
+	private workerInstanceId: string | null = null;
 
 	constructor() {
 		this.element = document.createElement("enhancer-bridge");
 		document.body.appendChild(this.element);
+		this.setupBroadcastListener();
 	}
 
 	async start() {
 		this.setupMessageListener();
-		this.setupBroadcastListener();
 		await this.waitForBridge();
+		void this.ping();
 		this.startPing();
 		this.logger.info("WorkerService started");
 	}
@@ -44,43 +55,80 @@ export default class WorkerService {
 		}
 	}
 
-	onBroadcast(type: string, handler: (payload: any) => void): void {
+	onBroadcast<T extends WorkerBroadcast["type"]>(
+		type: T,
+		handler: (payload: Extract<WorkerBroadcast, { type: T }>["payload"]) => void,
+	): void {
 		if (!this.broadcastHandlers.has(type)) {
 			this.broadcastHandlers.set(type, new Set());
 		}
 		this.broadcastHandlers.get(type)?.add(handler);
 	}
 
-	offBroadcast(type: string, handler: (payload: any) => void): void {
+	offBroadcast<T extends WorkerBroadcast["type"]>(
+		type: T,
+		handler: (payload: Extract<WorkerBroadcast, { type: T }>["payload"]) => void,
+	): void {
 		this.broadcastHandlers.get(type)?.delete(handler);
 	}
 
+	onRestart(handler: () => void): void {
+		this.restartHandlers.add(handler);
+	}
+
+	onEnhancerApiSeedRequest(
+		handler: (topic: EnhancerApiSeedRequestPayload["topic"]) => CachedAggregateSeed | null,
+	): void {
+		this.enhancerApiSeedHandlers.add(handler);
+	}
+
 	private startPing() {
-		this.pingInterval = window.setInterval(async () => {
-			try {
-				await this.send("ping", undefined);
-			} catch (error) {
-				this.logger.error("Ping failed:", error);
+		this.pingInterval = window.setInterval(() => void this.ping(), 5000);
+	}
+
+	private async ping(): Promise<void> {
+		try {
+			const response = await this.send("ping", undefined);
+			if (!response) return;
+			if (this.workerInstanceId && this.workerInstanceId !== response.instanceId) {
+				for (const handler of this.restartHandlers) handler();
 			}
-		}, 5000);
+			this.workerInstanceId = response.instanceId;
+		} catch (error) {
+			this.logger.error("Ping failed:", error);
+		}
 	}
 
 	private setupMessageListener() {
 		this.element.addEventListener("enhancer-response", ((event: CustomEvent<string>) => {
 			const detail = JSON.parse(event.detail) as ExtensionResponseDetail;
 			const { messageId, data, error } = detail;
-			const resolver = this.pendingMessages.get(messageId);
-			if (resolver) {
+			const pending = this.pendingMessages.get(messageId);
+			if (pending) {
 				this.pendingMessages.delete(messageId);
 				if (error) {
-					throw new Error(error);
+					pending.reject(new Error(error));
+					return;
 				}
-				resolver(data);
+				pending.resolve(data);
 			}
 		}) as unknown as EventListener);
 	}
 
 	private setupBroadcastListener() {
+		this.element.addEventListener("enhancer-api-seed-request", ((event: CustomEvent<string>) => {
+			const request = JSON.parse(event.detail) as EnhancerApiSeedRequestPayload;
+			let seed: CachedAggregateSeed | null = null;
+			for (const handler of this.enhancerApiSeedHandlers) {
+				seed = handler(request.topic);
+				if (seed) break;
+			}
+			this.element.dispatchEvent(
+				new CustomEvent<string>("enhancer-api-seed-response", {
+					detail: JSON.stringify({ requestId: request.requestId, seed }),
+				}),
+			);
+		}) as EventListener);
 		this.element.addEventListener("enhancer-broadcast", ((event: CustomEvent<string>) => {
 			try {
 				const broadcast = JSON.parse(event.detail) as WorkerBroadcast;
@@ -100,9 +148,9 @@ export default class WorkerService {
 		action: T,
 		...args: WorkerApiActions[T]["payload"] extends never ? [] : [WorkerApiActions[T]["payload"]]
 	): Promise<WorkerApiActions[T]["response"] | null> {
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 			const messageId = crypto.randomUUID();
-			this.pendingMessages.set(messageId, resolve);
+			this.pendingMessages.set(messageId, { resolve, reject });
 
 			const payload = args.length > 0 ? args[0] : undefined;
 			const event = new CustomEvent<string>("enhancer-message", {
@@ -117,6 +165,42 @@ export default class WorkerService {
 					resolve(null);
 				}
 			}, 10000);
+		});
+	}
+
+	getBridgeLogs(): Promise<LogEntry[]> {
+		return new Promise((resolve) => {
+			const requestId = crypto.randomUUID();
+			const timeout = { id: 0 };
+			const cleanup = () => {
+				clearTimeout(timeout.id);
+				this.element.removeEventListener("enhancer-bridge-logs-response", handleResponse);
+			};
+			const handleResponse = (event: Event) => {
+				try {
+					const detail = JSON.parse((event as CustomEvent<string>).detail) as {
+						requestId: string;
+						logs?: LogEntry[];
+					};
+					if (detail.requestId !== requestId) return;
+					cleanup();
+					resolve(Array.isArray(detail.logs) ? detail.logs : []);
+				} catch {
+					cleanup();
+					resolve([]);
+				}
+			};
+
+			this.element.addEventListener("enhancer-bridge-logs-response", handleResponse);
+			timeout.id = window.setTimeout(() => {
+				cleanup();
+				resolve([]);
+			}, 1000);
+			this.element.dispatchEvent(
+				new CustomEvent<string>("enhancer-bridge-logs-request", {
+					detail: JSON.stringify({ requestId }),
+				}),
+			);
 		});
 	}
 }

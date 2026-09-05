@@ -12,9 +12,6 @@ interface TooltipComponentProps {
 	interactive?: boolean;
 }
 
-const TOOLTIP_SHOW_EVENT = "ENHANCER_TOOLTIP";
-let tooltipIdCounter = 0;
-
 export function useTooltipPosition(
 	containerRef: preact.RefObject<HTMLElement>,
 	tooltipRef: preact.RefObject<HTMLElement>,
@@ -86,7 +83,6 @@ export function TooltipComponent({
 	const [actualPosition, setActualPosition] = useState(position);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const tooltipRef = useRef<HTMLDivElement>(null);
-	const idRef = useRef(++tooltipIdCounter);
 	const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
 	const calculatePosition = useCallback(() => {
@@ -140,8 +136,8 @@ export function TooltipComponent({
 
 	const showTooltip = useCallback(() => {
 		clearTooltipTimeout();
-		window.dispatchEvent(new CustomEvent(TOOLTIP_SHOW_EVENT, { detail: idRef.current }));
 		timeoutRef.current = setTimeout(() => {
+			if (!containerRef.current?.isConnected) return;
 			setIsVisible(true);
 			setTimeout(calculatePosition, 0);
 		}, delay);
@@ -164,22 +160,18 @@ export function TooltipComponent({
 	useEffect(() => clearTooltipTimeout, [clearTooltipTimeout]);
 
 	useEffect(() => {
-		const handler = (e: Event) => {
-			const detail = (e as CustomEvent).detail;
-			if (detail !== idRef.current) setIsVisible(false);
-		};
-		window.addEventListener(TOOLTIP_SHOW_EVENT, handler);
-		return () => window.removeEventListener(TOOLTIP_SHOW_EVENT, handler);
-	}, []);
-
-	useEffect(() => {
 		if (!isVisible) return;
 		calculatePosition();
 		const handleResize = () => calculatePosition();
 		const handleScroll = () => setIsVisible(false);
+		const observer = new MutationObserver(() => {
+			if (!containerRef.current?.isConnected) setIsVisible(false);
+		});
+		observer.observe(document.body, { childList: true, subtree: true });
 		window.addEventListener("resize", handleResize);
 		window.addEventListener("scroll", handleScroll, { passive: true });
 		return () => {
+			observer.disconnect();
 			window.removeEventListener("resize", handleResize);
 			window.removeEventListener("scroll", handleScroll);
 		};

@@ -18,7 +18,9 @@ export type ChatControllerComponent = {
 		channelLogin: string;
 		channelID: string;
 		messageHandlerAPI: {
+			handleMessage: (...messages: TwitchChatMessage[]) => unknown;
 			addMessageHandler: (callback: (message: TwitchChatMessage) => void) => void;
+			removeMessageHandler?: (callback: (message: TwitchChatMessage) => void) => void;
 		};
 	};
 };
@@ -405,7 +407,8 @@ export interface StreamInfoTwitchStreamData {
 	liveSince: string;
 	viewCount: number;
 	collabViewCount: number | null;
-	guestStarGuests: StreamInfoGuestStarGuest[];
+	guestStarGuests?: StreamInfoGuestStarGuest[];
+	guestList?: StreamInfoGuestStarGuest[];
 	guestStarSessionID: string | null;
 	guestStarHostID: string | null;
 	broadcastID: string;

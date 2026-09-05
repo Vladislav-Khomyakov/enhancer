@@ -1,4 +1,5 @@
 import type ReactUtils from "$shared/utils/react.utils.ts";
+import type { TwitchChatMessage } from "$types/platforms/twitch/twitch.events.types.ts";
 import type {
 	ChannelInfo,
 	ChannelInfoAlternativeComponent,
@@ -18,7 +19,6 @@ import type {
 	ScrollableChatComponent,
 	StreamInfoTwitchStreamData,
 	TwitchChatCommand,
-	TwitchChatMessageComponent,
 	VideoInfoComponent,
 } from "$types/platforms/twitch/twitch.utils.types";
 
@@ -176,11 +176,11 @@ export default class TwitchUtils {
 
 	getChatMessage(message: Node | Element | HTMLElement | null) {
 		if (!message) return;
-		return this.reactUtils.findReactChildren<TwitchChatMessageComponent>(
+		return this.reactUtils.findReactParents<never, { message?: TwitchChatMessage }>(
 			this.reactUtils.getReactInstance(message),
-			(n) => n.return?.stateNode?.props?.message,
+			(n) => n.memoizedProps?.message,
 			10,
-		)?.return.stateNode.props as TwitchChatMessageComponent;
+		)?.memoizedProps.message;
 	}
 
 	getAutoCompleteHandler() {
@@ -322,7 +322,8 @@ export default class TwitchUtils {
 			this.reactUtils.getReactInstance(document.querySelector("#live-channel-stream-information")),
 			(n) =>
 				(n?.pendingProps?.costreamDetails !== undefined && n?.pendingProps?.costreamViewCount !== undefined) ||
-				n?.pendingProps?.guestStarGuests !== undefined,
+				n?.pendingProps?.guestStarGuests !== undefined ||
+				n?.pendingProps?.guestList !== undefined,
 			100,
 		)?.pendingProps;
 		if (!props) return;

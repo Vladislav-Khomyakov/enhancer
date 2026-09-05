@@ -1,3 +1,4 @@
+import { Logger } from "$shared/logger/logger.ts";
 import type WorkerService from "$shared/worker/worker.service.ts";
 import type { CommonEvents } from "$types/platforms/common.events.ts";
 import type { PlatformSettings } from "$types/shared/worker/settings-worker.types.ts";
@@ -6,6 +7,8 @@ import type { Emitter } from "nanoevents";
 import { useEffect, useState } from "preact/hooks";
 import styled from "styled-components";
 
+const logger = new Logger({ context: "export-import" });
+
 const Container = styled.div`
 	display: flex;
 	flex-direction: row;
@@ -13,68 +16,69 @@ const Container = styled.div`
 	justify-content: space-between;
 	gap: 24px;
 	width: 100%;
-	padding: 10px 0;
+	background: var(--settings-surface);
+	border: 1px solid var(--settings-border);
+	border-radius: 12px;
+	padding: 16px;
 `;
 
 const InfoSection = styled.div`
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
+	gap: 3px;
 	flex: 1;
+	min-width: 0;
 `;
 
 const InfoTitle = styled.span`
-	color: #e0e0e0;
+	color: var(--settings-text-strong);
 	font-size: 13px;
-	font-weight: 600;
-	letter-spacing: 0.5px;
+	font-weight: 500;
 `;
 
 const InfoDescription = styled.span`
-	color: #888;
-	font-size: 11px;
+	color: var(--settings-text-muted);
+	font-size: 11.5px;
+	line-height: 1.5;
 `;
 
 const PlatformTag = styled.span`
-	color: #b887ff;
+	color: #9147ff;
 	font-weight: 600;
 	text-transform: capitalize;
 `;
 
 const ButtonGroup = styled.div`
 	display: flex;
-	gap: 12px;
+	gap: 8px;
 	flex-shrink: 0;
-	padding-left: 24px;
 `;
 
 const ActionButton = styled.button`
-	background: rgba(145, 71, 255, 0.1);
-	border: 1px solid rgba(145, 71, 255, 0.3);
-	color: #b887ff;
-	padding: 8px 20px;
-	border-radius: 6px;
+	background: var(--settings-control-background);
+	border: 1px solid var(--settings-control-border);
+	color: var(--settings-text);
+	padding: 8px 18px;
+	border-radius: 8px;
 	font-size: 12px;
-	font-weight: 600;
+	font-weight: 500;
 	cursor: pointer;
-	transition: all 0.2s ease;
-	min-width: 120px;
+	transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+	min-width: 104px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	gap: 8px;
 
 	&:hover:not(:disabled) {
-		background: rgba(145, 71, 255, 0.2);
-		border-color: rgba(145, 71, 255, 0.5);
-		color: #fff;
-		transform: translateY(-1px);
+		border-color: #9147ff;
+		color: #9147ff;
+		background: var(--settings-control-hover);
 	}
 
 	&:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
-		transform: none;
 	}
 `;
 
@@ -86,15 +90,15 @@ const StatusOverlay = styled.div<{ type: "success" | "error" }>`
 	position: fixed;
 	bottom: 20px;
 	right: 20px;
-	padding: 12px 24px;
-	border-radius: 8px;
+	padding: 12px 20px;
+	border-radius: 10px;
 	font-size: 13px;
 	font-weight: 500;
-	z-index: 100;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	z-index: 10001;
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
 	animation: slideIn 0.3s ease;
 
-	background: #1f1f1f;
+	background: var(--settings-surface-raised);
 
 	color: ${(props) => (props.type === "success" ? "#66bb6a" : "#ff5252")};
 
@@ -166,7 +170,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 			}
 			return allData;
 		} catch (error) {
-			console.error("Error fetching all watchtime data:", error);
+			logger.error("Error fetching all watchtime data:", error);
 			return allData;
 		}
 	};
@@ -198,7 +202,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 
 			showStatus(`Successfully exported ${platform} backup`, "success");
 		} catch (error) {
-			console.error("Export error:", error);
+			logger.error("Export error:", error);
 			showStatus("Failed to export data", "error");
 		} finally {
 			setLoading(false);
@@ -251,7 +255,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 					importedSettings = Object.keys(data.settings).length;
 					emitter.emit("extension:settings-refresh");
 				} catch (error) {
-					console.error("Failed to import settings:", error);
+					logger.error("Failed to import settings:", error);
 					showStatus("Failed to import settings", "error");
 					return;
 				}
@@ -279,7 +283,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 						importedWatchtime++;
 					} else {
 						failedWatchtime++;
-						console.error(`Failed to import record for ${recordsToImport[index].username}:`, result.reason);
+						logger.error(`Failed to import record for ${recordsToImport[index].username}:`, result.reason);
 					}
 				});
 			}
@@ -305,7 +309,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 			const type = failedWatchtime > 0 && importedWatchtime === 0 ? "error" : "success";
 			showStatus(message, type);
 		} catch (error) {
-			console.error("Import error:", error);
+			logger.error("Import error:", error);
 			showStatus("Failed to import data", "error");
 		} finally {
 			setLoading(false);
