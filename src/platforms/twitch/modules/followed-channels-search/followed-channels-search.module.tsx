@@ -1,3 +1,7 @@
+import type {
+	FollowedChannelSearchResult,
+	FollowedChannelsSearchComponentProps,
+} from "$types/platforms/twitch/followed-channels-search.types.ts";
 import type { TwitchModuleConfig } from "$types/shared/module/module.types.ts";
 import { type Signal, signal } from "@preact/signals";
 import { render } from "preact";
@@ -11,6 +15,8 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 	private readonly showMoreSelector = '[data-test-selector="ShowMore"]';
 	private query = "";
 	private observer: MutationObserver | undefined;
+	private resizeObserver: ResizeObserver | undefined;
+	private collapsed = false;
 	private loadMoreTimer: NodeJS.Timeout | undefined;
 	private loadMoreClicks = 0;
 	private results: Signal<FollowedChannelSearchResult[]> = signal([]);
@@ -32,6 +38,11 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 		this.commonUtils().createGlobalStyle(`
 			.enhancer-followed-channels-search {
 				padding: 0 10px 8px;
+			}
+
+			.enhancer-followed-channels-search[hidden],
+			#side-nav:has([data-a-target="side-nav-header-collapsed"]) .enhancer-followed-channels-search {
+				display: none;
 			}
 
 			.enhancer-followed-channels-search input {
@@ -144,7 +155,11 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 		header.after(wrapper);
 
 		render(
-			<FollowedChannelsSearchComponent results={this.results} onSearch={(value) => this.search(value)} />,
+			<FollowedChannelsSearchComponent
+				initialValue={this.query}
+				results={this.results}
+				onSearch={(value) => this.search(value)}
+			/>,
 			wrapper,
 		);
 		this.createObserver();
@@ -155,7 +170,7 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 		this.loadMoreClicks = 0;
 		this.applyFilter();
 
-		if (this.query.length > 0) {
+		if (this.query.length > 0 && !this.collapsed) {
 			this.scheduleLoadMore();
 		} else {
 			this.results.value = [];
@@ -168,8 +183,39 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 		if (!sideNav) return;
 
 		this.observer?.disconnect();
-		this.observer = new MutationObserver(() => this.applyFilter());
-		this.observer.observe(sideNav, { childList: true, subtree: true });
+		this.resizeObserver?.disconnect();
+		const update = () => {
+			this.updateVisibility(sideNav);
+			this.applyFilter();
+		};
+		this.observer = new MutationObserver((records) => {
+			if (records.every((record) => record.target instanceof Element && record.target.closest(`.${this.getId()}`)))
+				return;
+			update();
+		});
+		this.observer.observe(sideNav, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: ["data-a-target", "aria-hidden"],
+		});
+		this.resizeObserver = new ResizeObserver(update);
+		this.resizeObserver.observe(sideNav);
+		update();
+	}
+
+	private updateVisibility(sideNav: Element) {
+		const collapsed =
+			sideNav.getBoundingClientRect().width < 100 ||
+			sideNav.getAttribute("aria-hidden") === "true" ||
+			!!sideNav.querySelector('[data-a-target="side-nav-header-collapsed"]');
+		const wasCollapsed = this.collapsed;
+		this.collapsed = collapsed;
+		for (const wrapper of sideNav.querySelectorAll<HTMLElement>(`.${this.getId()}`)) {
+			wrapper.hidden = collapsed;
+		}
+		if (collapsed) this.stopLoadMore();
+		else if (wasCollapsed && this.query.length > 0) this.scheduleLoadMore();
 	}
 
 	private applyFilter() {
@@ -178,7 +224,8 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 		const resultHrefs = new Set<string>();
 
 		for (const channel of channels) {
-			const isMatch = this.query.length > 0 && this.getChannelSearchText(channel).includes(this.query);
+			const isMatch =
+				!this.collapsed && this.query.length > 0 && this.getChannelSearchText(channel).includes(this.query);
 			channel.classList.toggle("enhancer-followed-channel-search-match", isMatch);
 
 			if (!isMatch) continue;
@@ -188,7 +235,7 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 			resultHrefs.add(result.href);
 		}
 
-		this.results.value = results;
+		if (JSON.stringify(this.results.peek()) !== JSON.stringify(results)) this.results.value = results;
 	}
 
 	private scheduleLoadMore() {
@@ -203,12 +250,15 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 	}
 
 	private loadMoreChannels() {
-		if (this.query.length === 0) {
+		if (this.collapsed || this.query.length === 0) {
 			this.stopLoadMore();
 			return;
 		}
 
-		const button = document.querySelector<HTMLElement>(this.showMoreSelector);
+		const button = document
+			.querySelector<HTMLElement>(".followed-side-nav-header")
+			?.closest(".side-nav-section")
+			?.querySelector<HTMLElement>(this.showMoreSelector);
 		const isDisabled = button instanceof HTMLButtonElement && button.disabled;
 		if (!button || isDisabled || this.loadMoreClicks >= 40) {
 			this.stopLoadMore();
@@ -284,21 +334,8 @@ export default class FollowedChannelsSearchModule extends TwitchModule {
 	}
 }
 
-type FollowedChannelSearchResult = {
-	avatarUrl?: string;
-	game?: string;
-	href: string;
-	name: string;
-	status?: string;
-};
-
-type FollowedChannelsSearchComponentProps = {
-	onSearch: (value: string) => void;
-	results: Signal<FollowedChannelSearchResult[]>;
-};
-
-function FollowedChannelsSearchComponent({ onSearch, results }: FollowedChannelsSearchComponentProps) {
-	const [value, setValue] = useState("");
+function FollowedChannelsSearchComponent({ initialValue, onSearch, results }: FollowedChannelsSearchComponentProps) {
+	const [value, setValue] = useState(initialValue);
 	const placeholder = "Search followed channels";
 
 	return (

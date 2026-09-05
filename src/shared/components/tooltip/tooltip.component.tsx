@@ -1,16 +1,7 @@
-import type { ComponentChildren } from "preact";
+import type { TooltipComponentProps } from "$types/shared/components/tooltip.component.types.ts";
 import { createPortal } from "preact/compat";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import styled from "styled-components";
-
-interface TooltipComponentProps {
-	children: ComponentChildren;
-	content: ComponentChildren;
-	position?: "top" | "bottom" | "left" | "right";
-	delay?: number;
-	maxWidth?: number;
-	interactive?: boolean;
-}
 
 export function useTooltipPosition(
 	containerRef: preact.RefObject<HTMLElement>,
@@ -78,6 +69,7 @@ export function TooltipComponent({
 	delay = 300,
 	maxWidth = 300,
 	interactive = false,
+	appearance = "default",
 }: TooltipComponentProps) {
 	const [isVisible, setIsVisible] = useState(false);
 	const [actualPosition, setActualPosition] = useState(position);
@@ -185,6 +177,7 @@ export function TooltipComponent({
 			{isVisible &&
 				createPortal(
 					<TooltipContent
+						data-appearance={appearance}
 						$interactive={interactive}
 						$maxWidth={maxWidth}
 						onMouseEnter={interactive ? keepTooltipVisible : undefined}
@@ -207,6 +200,22 @@ const TooltipContainer = styled.div`
 `;
 
 const TooltipContent = styled.div<{ $interactive: boolean; $maxWidth: number; position: string }>`
+	&[data-appearance="twitch"] {
+		background: var(--color-background-base, #18181b);
+		border-color: var(--color-border-base, rgba(83, 83, 95, 0.48));
+		border-radius: var(--border-radius-medium, 6px);
+		box-shadow: var(--shadow-elevation-2, 0 4px 8px rgba(0, 0, 0, 0.4));
+		backdrop-filter: none;
+	}
+
+	&[data-appearance="twitch"] > :first-child {
+		display: none;
+	}
+
+	&[data-appearance="twitch"] > :last-child {
+		padding: 0;
+	}
+
 	position: fixed;
 	z-index: 99999999999;
 	background: rgba(25, 25, 28, 0.8);

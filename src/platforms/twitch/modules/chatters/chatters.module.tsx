@@ -705,28 +705,16 @@ const ChannelDescriptionState = styled.p`
 `;
 
 const CollaborativeViewersCard = styled.div`
-	width: 360px;
-	margin: -12px -16px;
+	width: min(340px, calc(100vw - 18px));
 	overflow: hidden;
-	border-radius: 8px;
-	background: rgba(18, 18, 22, 0.96);
-	color: #efeff1;
+	border-radius: var(--border-radius-medium, 6px);
+	color: var(--color-text-base, #efeff1);
+	font-family: inherit;
 `;
 
 const CollaborativeViewersHeader = styled.div`
-	padding: 16px;
-	border-bottom: 1px solid rgba(239, 239, 241, 0.1);
-	background: rgba(35, 31, 42, 0.72);
-`;
-
-const CollaborativeViewersEyebrow = styled.div`
-	margin-bottom: 4px;
-	color: #bf94ff;
-	font-size: 11px;
-	font-weight: 700;
-	letter-spacing: 0.08em;
-	line-height: 1.2;
-	text-transform: uppercase;
+	padding: 12px;
+	border-bottom: 1px solid var(--color-border-base, rgba(83, 83, 95, 0.48));
 `;
 
 const CollaborativeViewersTitleRow = styled.div`
@@ -736,87 +724,71 @@ const CollaborativeViewersTitleRow = styled.div`
 	gap: 12px;
 `;
 
-const CollaborativeViewersTitle = styled.div`
-	font-size: 17px;
-	font-weight: 700;
-	line-height: 1.3;
+const CollaborativeViewersTitle = styled.h3`
+	margin: 0;
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1.5;
 `;
 
 const CollaborativeViewersCount = styled.span`
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	min-width: 24px;
-	height: 24px;
-	padding: 0 7px;
-	border-radius: 999px;
-	background: rgba(145, 71, 255, 0.2);
-	color: #d8bfff;
+	color: var(--color-text-alt-2, #adadb8);
 	font-size: 12px;
-	font-weight: 700;
 	font-variant-numeric: tabular-nums;
 `;
 
 const CollaborativeViewersSummary = styled.div`
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 8px;
-	margin-top: 14px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	margin-top: 8px;
 `;
 
 const CollaborativeViewersSummaryItem = styled.div`
 	display: flex;
 	align-items: baseline;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 9px 10px;
-	border: 1px solid rgba(239, 239, 241, 0.08);
-	border-radius: 6px;
-	background: rgba(14, 14, 16, 0.46);
+	gap: 4px;
 `;
 
 const CollaborativeViewersSummaryLabel = styled.span`
-	color: #adadb8;
-	font-size: 11px;
-	font-weight: 600;
+	color: var(--color-text-alt-2, #adadb8);
+	font-size: 12px;
 `;
 
-const CollaborativeViewersSummaryValue = styled.span<{ $accent?: boolean }>`
-	color: ${({ $accent }) => ($accent ? "#ff8280" : "#efeff1")};
-	font-size: 14px;
-	font-weight: 700;
+const CollaborativeViewersSummaryValue = styled.span`
+	font-size: 12px;
+	font-weight: 600;
 	font-variant-numeric: tabular-nums;
 `;
 
 const CollaborativeViewersList = styled.div`
 	display: flex;
 	flex-direction: column;
-	max-height: 360px;
-	padding: 6px;
+	max-height: min(320px, 50vh);
+	padding: 4px;
 	overflow-y: auto;
+	overscroll-behavior: contain;
 `;
 
 const CollaborativeViewerRow = styled.a`
 	display: grid;
-	grid-template-columns: 40px minmax(0, 1fr) auto;
+	grid-template-columns: 32px minmax(0, 1fr) auto;
 	align-items: center;
-	gap: 10px;
-	min-height: 56px;
-	padding: 8px 10px;
-	border-radius: 6px;
+	gap: 8px;
+	min-height: 52px;
+	padding: 6px 8px;
+	border-radius: var(--border-radius-medium, 4px);
 	color: inherit;
 	text-decoration: none;
-	transition:
-		background-color 150ms ease-out,
-		transform 150ms ease-out;
 
 	&:hover {
-		background-color: rgba(145, 71, 255, 0.12);
-		transform: translateX(2px);
+		background-color: var(--color-background-interactable-hover, rgba(83, 83, 95, 0.48));
+		color: inherit;
+		text-decoration: none;
 	}
 
 	&:focus-visible {
-		outline: 2px solid #bf94ff;
+		outline: 2px solid var(--color-border-input-focus, #9147ff);
 		outline-offset: -2px;
 	}
 `;
@@ -824,13 +796,13 @@ const CollaborativeViewerRow = styled.a`
 const CollaborativeViewerAvatarWrapper = styled.span`
 	position: relative;
 	display: block;
-	width: 40px;
-	height: 40px;
+	width: 32px;
+	height: 32px;
 `;
 
 const CollaborativeViewerAvatar = styled.img`
-	width: 40px;
-	height: 40px;
+	width: 32px;
+	height: 32px;
 	border-radius: 50%;
 	object-fit: cover;
 `;
@@ -846,16 +818,16 @@ const CollaborativeViewerName = styled.span`
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 14px;
-	font-weight: 650;
-	line-height: 1.25;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.4;
 `;
 
 const CollaborativeViewerLogin = styled.span`
 	overflow: hidden;
-	color: #8f8f9a;
-	font-size: 11px;
-	line-height: 1.2;
+	color: var(--color-text-alt-2, #adadb8);
+	font-size: 12px;
+	line-height: 1.4;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 `;
@@ -869,13 +841,12 @@ const CollaborativeViewerMetrics = styled.span`
 	font-variant-numeric: tabular-nums;
 `;
 
-const CollaborativeViewerMetric = styled.span<{ $accent?: boolean }>`
+const CollaborativeViewerMetric = styled.span`
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	color: ${({ $accent }) => ($accent ? "#ff8280" : "#c7c7cf")};
+	color: var(--color-text-alt-2, #adadb8);
 	font-size: 12px;
-	font-weight: 650;
 
 	svg {
 		width: 13px;
@@ -890,16 +861,16 @@ const LiveIndicator = styled.span`
 	bottom: -1px;
 	width: 8px;
 	height: 8px;
-	border: 2px solid #121216;
+	border: 2px solid var(--color-background-base, #18181b);
 	border-radius: 50%;
-	background-color: #e91916;
+	background-color: var(--color-fill-live, #eb0400);
 `;
 
 const CollaborativeViewersEmpty = styled.div`
-	padding: 28px 18px;
-	color: #8f8f9a;
+	padding: 20px 12px;
+	color: var(--color-text-alt-2, #adadb8);
 	font-size: 13px;
-	line-height: 1.45;
+	line-height: 1.5;
 	text-align: center;
 `;
 
@@ -952,10 +923,9 @@ const ModeratorCountersComponent = ({
 				content={
 					<CollaborativeViewersCard>
 						<CollaborativeViewersHeader>
-							<CollaborativeViewersEyebrow>Shared audience</CollaborativeViewersEyebrow>
 							<CollaborativeViewersTitleRow>
-								<CollaborativeViewersTitle>Live channels</CollaborativeViewersTitle>
-								<CollaborativeViewersCount>{collaborativeViewers.value.length}</CollaborativeViewersCount>
+								<CollaborativeViewersTitle>Shared audience</CollaborativeViewersTitle>
+								<CollaborativeViewersCount>{collaborativeViewers.value.length} live</CollaborativeViewersCount>
 							</CollaborativeViewersTitleRow>
 							<CollaborativeViewersSummary>
 								<CollaborativeViewersSummaryItem>
@@ -964,7 +934,7 @@ const ModeratorCountersComponent = ({
 								</CollaborativeViewersSummaryItem>
 								<CollaborativeViewersSummaryItem>
 									<CollaborativeViewersSummaryLabel>Chatters</CollaborativeViewersSummaryLabel>
-									<CollaborativeViewersSummaryValue $accent>{chattersValue}</CollaborativeViewersSummaryValue>
+									<CollaborativeViewersSummaryValue>{chattersValue}</CollaborativeViewersSummaryValue>
 								</CollaborativeViewersSummaryItem>
 							</CollaborativeViewersSummary>
 						</CollaborativeViewersHeader>
@@ -1001,7 +971,7 @@ const ModeratorCountersComponent = ({
 												</svg>
 												{formatChatters(viewer.viewersCount)}
 											</CollaborativeViewerMetric>
-											<CollaborativeViewerMetric $accent title="Chatters">
+											<CollaborativeViewerMetric title="Chatters">
 												<svg aria-hidden="true" viewBox="0 0 20 20">
 													<path d="M10 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8ZM4 17a6 6 0 0 1 12 0v1H4v-1Z" />
 												</svg>
@@ -1014,8 +984,9 @@ const ModeratorCountersComponent = ({
 						</CollaborativeViewersList>
 					</CollaborativeViewersCard>
 				}
+				appearance="twitch"
 				interactive
-				maxWidth={400}
+				maxWidth={342}
 				position="top"
 			>
 				<ModeratorCounter onClick={refresh}>
