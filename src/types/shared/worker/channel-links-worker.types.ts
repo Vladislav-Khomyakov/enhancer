@@ -1,12 +1,9 @@
 import type { PlatformType } from "$types/shared/platform.types.ts";
 
-export type FollowsLinkedPlatform = "live" | "twitch" | "kick";
-
 export type ChannelLink = {
 	twitch: string;
 	kick: string;
-	primary: PlatformType | null;
-	dismissed: boolean;
+	primary: PlatformType;
 };
 
 export type ChannelLinkRecord = ChannelLink & {
@@ -17,8 +14,12 @@ export type ChannelLinkRecord = ChannelLink & {
 export interface UpdateChannelLinkPayload {
 	twitch: string;
 	kick: string;
-	primary: PlatformType | null;
-	dismissed: boolean;
+	primary: PlatformType;
+}
+
+export interface RemoveChannelLinkPayload {
+	twitch: string;
+	kick: string;
 }
 
 export interface ChannelLinksPayload {

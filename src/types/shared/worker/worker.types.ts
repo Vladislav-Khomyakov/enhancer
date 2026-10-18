@@ -27,7 +27,11 @@ import type {
 	SetChannelPinnedPayload,
 } from "$types/shared/worker/pins-worker.types.ts";
 import type { PlatformSettings } from "$types/shared/worker/settings-worker.types.ts";
-import type { ChannelLinksPayload, UpdateChannelLinkPayload } from "$types/shared/worker/channel-links-worker.types.ts";
+import type {
+	ChannelLinksPayload,
+	RemoveChannelLinkPayload,
+	UpdateChannelLinkPayload,
+} from "$types/shared/worker/channel-links-worker.types.ts";
 
 export type { PlatformType };
 
@@ -221,6 +225,10 @@ export interface WorkerApiActions {
 	};
 	updateChannelLink: {
 		payload: UpdateChannelLinkPayload;
+		response: ChannelLinksPayload;
+	};
+	removeChannelLink: {
+		payload: RemoveChannelLinkPayload;
 		response: ChannelLinksPayload;
 	};
 }

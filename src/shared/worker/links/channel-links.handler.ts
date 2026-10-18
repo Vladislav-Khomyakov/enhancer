@@ -5,17 +5,39 @@ import { MessageHandler } from "$shared/worker/message.handler.ts";
 import type {
 	ChannelLinkRecord,
 	ChannelLinksPayload,
+	RemoveChannelLinkPayload,
 	UpdateChannelLinkPayload,
 } from "$types/shared/worker/channel-links-worker.types.ts";
 import type { WorkerBroadcast } from "$types/shared/worker/worker.types.ts";
 
 async function readChannelLinks(database: SharedDatabase): Promise<ChannelLinksPayload> {
 	const records = await database.getLinks();
-	return { links: records.map(({ twitch, kick, primary, dismissed }) => ({ twitch, kick, primary, dismissed })) };
+	return {
+		links: records.map(({ twitch, kick, primary }) => ({
+			twitch,
+			kick,
+			primary: primary === "kick" ? "kick" : "twitch",
+		})),
+	};
 }
 
-function normalizeLogin(value: unknown): string {
-	return typeof value === "string" ? value.trim().toLowerCase() : "";
+async function broadcastChannelLinks(database: SharedDatabase): Promise<ChannelLinksPayload> {
+	const links = await readChannelLinks(database);
+	const broadcast: WorkerBroadcast = { type: "channel-links-updated", payload: links };
+	chrome.runtime.sendMessage(broadcast).catch(() => {});
+	for (const tab of await chrome.tabs.query({})) {
+		if (tab.id) chrome.tabs.sendMessage(tab.id, broadcast).catch(() => {});
+	}
+	return links;
+}
+
+function readLogins(payload: RemoveChannelLinkPayload | undefined, action: string) {
+	const twitch = typeof payload?.twitch === "string" ? payload.twitch.trim().toLowerCase() : "";
+	const kick = typeof payload?.kick === "string" ? payload.kick.trim().toLowerCase() : "";
+	if (!twitch || !kick) {
+		throw new Error(`Invalid payload for ${action} action. 'twitch' and 'kick' logins are required.`);
+	}
+	return { twitch, kick };
 }
 
 export class GetChannelLinksHandler extends MessageHandler {
@@ -40,29 +62,34 @@ export class UpdateChannelLinkHandler extends MessageHandler {
 	}
 
 	async handle(payload: UpdateChannelLinkPayload): Promise<ChannelLinksPayload> {
-		const twitch = normalizeLogin(payload?.twitch);
-		const kick = normalizeLogin(payload?.kick);
-		const primary = payload?.primary ?? null;
-		if (!twitch || !kick || (primary !== null && !["twitch", "kick"].includes(primary))) {
-			throw new Error("Invalid payload for updateChannelLink action. 'twitch' and 'kick' logins are required.");
+		const { twitch, kick } = readLogins(payload, "updateChannelLink");
+		if (payload.primary !== "twitch" && payload.primary !== "kick") {
+			throw new Error("Invalid payload for updateChannelLink action. 'primary' must be 'twitch' or 'kick'.");
 		}
 
 		const record: ChannelLinkRecord = {
 			id: getChannelLinkId(twitch, kick),
 			twitch,
 			kick,
-			primary: payload.dismissed === true ? null : primary,
-			dismissed: payload.dismissed === true,
+			primary: payload.primary,
 			updatedAt: Date.now(),
 		};
 		await this.database.putLink(record, getConflictingLinkIds(await this.database.getLinks(), record));
+		return broadcastChannelLinks(this.database);
+	}
+}
 
-		const links = await readChannelLinks(this.database);
-		const broadcast: WorkerBroadcast = { type: "channel-links-updated", payload: links };
-		chrome.runtime.sendMessage(broadcast).catch(() => {});
-		for (const tab of await chrome.tabs.query({})) {
-			if (tab.id) chrome.tabs.sendMessage(tab.id, broadcast).catch(() => {});
-		}
-		return links;
+export class RemoveChannelLinkHandler extends MessageHandler {
+	constructor(
+		logger: Logger,
+		private readonly database: SharedDatabase,
+	) {
+		super(logger);
+	}
+
+	async handle(payload: RemoveChannelLinkPayload): Promise<ChannelLinksPayload> {
+		const { twitch, kick } = readLogins(payload, "removeChannelLink");
+		await this.database.deleteLink(getChannelLinkId(twitch, kick));
+		return broadcastChannelLinks(this.database);
 	}
 }

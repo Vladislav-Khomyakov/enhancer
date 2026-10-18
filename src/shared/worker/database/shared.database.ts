@@ -102,6 +102,10 @@ export class SharedDatabase extends Database {
 		});
 	}
 
+	async deleteLink(id: string): Promise<void> {
+		await this.request(this.linksStore, "readwrite", (store) => store.delete(id));
+	}
+
 	async clear(platform: PlatformType): Promise<boolean> {
 		const existing = await this.getFollows(platform);
 		const statuses = await this.getStatuses(platform);

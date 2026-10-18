@@ -1,6 +1,5 @@
 import type WorkerService from "$shared/worker/worker.service.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
-import type { FollowsLinkedPlatform } from "$types/shared/worker/channel-links-worker.types.ts";
 import type {
 	CrossPlatformChannel,
 	FollowsSortOrder,
@@ -13,7 +12,6 @@ export type CrossPlatformFollowsComponentProps = {
 	pinsEnabled: boolean;
 	sort: FollowsSortOrder;
 	onSortChange: (sort: FollowsSortOrder) => void;
-	linkedPlatform: FollowsLinkedPlatform;
 	onNavigate: (url: string) => void;
 };
 
@@ -21,12 +19,28 @@ export type SidebarChannel = CrossPlatformChannel & { platform: PlatformType; li
 
 export type LinkedChannels = {
 	channels: Record<PlatformType, SidebarChannel>;
-	primary: PlatformType | null;
+	primary: PlatformType;
 };
 
-export type ChannelLinkSuggestion = Record<PlatformType, SidebarChannel>;
+export type ChannelMenuState = { channel: SidebarChannel; x: number; y: number };
 
-export type LinkMenuOption = "default" | PlatformType | "unlink" | "link";
+export type ChannelContextMenuProps = ChannelMenuState & {
+	host: PlatformType;
+	pinsEnabled: boolean;
+	onTogglePin: (channel: SidebarChannel) => void;
+	onLink: (channel: SidebarChannel) => void;
+	onPrefer: (channel: SidebarChannel, primary: PlatformType) => void;
+	onUnlink: (channel: SidebarChannel) => void;
+	onClose: () => void;
+};
+
+export type LinkChannelDialogProps = {
+	channel: SidebarChannel;
+	channels: SidebarChannel[];
+	host: PlatformType;
+	onLink: (target: SidebarChannel, primary: PlatformType) => void;
+	onClose: () => void;
+};
 
 export type SidebarChannelRowProps = {
 	channel: SidebarChannel;
@@ -34,8 +48,7 @@ export type SidebarChannelRowProps = {
 	compact: boolean;
 	now: number;
 	onTogglePin?: (channel: SidebarChannel) => void;
-	onLinkAction?: (channel: SidebarChannel, option: LinkMenuOption) => void;
-	onPick?: (channel: SidebarChannel) => void;
+	onContextMenu?: (event: MouseEvent, channel: SidebarChannel) => void;
 	onNavigate: (url: string) => void;
 	resolvePreviewUrl: (platform: PlatformType, login: string) => Promise<string | null>;
 };

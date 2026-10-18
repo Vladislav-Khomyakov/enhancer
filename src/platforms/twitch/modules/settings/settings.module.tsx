@@ -2,7 +2,6 @@ import { ExportImportComponent } from "$shared/components/export-import/export-i
 import { EnhancerAboutComponent } from "$shared/components/settings/about.component.tsx";
 import { WatchtimeListComponent } from "$shared/components/watchtime-list/watchtime-list.component.tsx";
 import { SettingsHelper } from "$shared/module/helpers/settings.helper.tsx";
-import { FOLLOWS_LINKED_PLATFORM_LABELS, FOLLOWS_LINKED_PLATFORMS } from "$shared/utils/follows-links.utils.ts";
 import { TWITCH_DEFAULT_SETTINGS } from "$twitch/twitch.constants.ts";
 import TwitchModule from "$twitch/twitch.module.ts";
 import type { TwitchSettings } from "$types/platforms/twitch/twitch.settings.types.ts";
@@ -403,16 +402,6 @@ export default class SettingsModule extends TwitchModule {
 				type: "toggle",
 				categoryId: CATEGORY.EXPERIMENTAL,
 				dependsOn: { key: "crossPlatformFollowsSyncEnabled" },
-			},
-			{
-				id: "followsLinkedPlatform",
-				title: "Linked Channels Open On",
-				description:
-					"Link a streamer's Twitch and Kick channels from the merged list to show them as one channel. If they're live on only one site, that site opens. Otherwise this setting decides. You can also choose per channel. Applies to both sites.",
-				type: "select",
-				categoryId: CATEGORY.EXPERIMENTAL,
-				dependsOn: { key: "crossPlatformFollowsDisplayEnabled" },
-				options: FOLLOWS_LINKED_PLATFORMS.map((value) => ({ value, label: FOLLOWS_LINKED_PLATFORM_LABELS[value] })),
 			},
 			{
 				id: "followsHomeEnabled",
