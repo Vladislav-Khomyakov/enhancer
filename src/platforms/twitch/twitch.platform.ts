@@ -10,6 +10,7 @@ import ChatNicknameCustomizationModule from "$twitch/modules/chat-nickname-custo
 import ChattersModule from "$twitch/modules/chatters/chatters.module.tsx";
 import CrossPlatformFollowsSyncModule from "$twitch/modules/cross-platform-follows/cross-platform-follows-sync.module.ts";
 import CrossPlatformFollowsModule from "$twitch/modules/cross-platform-follows/cross-platform-follows.module.tsx";
+import EmoteBarModule from "$twitch/modules/emote-bar/emote-bar.module.tsx";
 import FollowsHomeModule from "$twitch/modules/follows-home/follows-home.module.ts";
 import LocalWatchtimeCounterModule from "$twitch/modules/local-watchtime-counter/local-watchtime-counter.module.tsx";
 import PinStreamerModule from "$twitch/modules/pin-streamer/pin-streamer.module.tsx";
@@ -57,6 +58,7 @@ export default class TwitchPlatform extends Platform<TwitchModule, TwitchEvents,
 			this.utilsRepository,
 			this.enhancerApi,
 			this.workerApi,
+			this.emotesApi,
 			this.twitchUtils,
 			this.twitchApi,
 		] as const;
@@ -84,6 +86,7 @@ export default class TwitchPlatform extends Platform<TwitchModule, TwitchEvents,
 			new MessageMenuModule(...dependencies),
 			new ChatMessageMenuModule(...dependencies),
 			new ChatMentionSoundModule(...dependencies),
+			new EmoteBarModule(...dependencies),
 			new AdditionalFontsModule(...dependencies),
 			new CrossPlatformFollowsSyncModule(...dependencies),
 			new CrossPlatformFollowsModule(...dependencies),

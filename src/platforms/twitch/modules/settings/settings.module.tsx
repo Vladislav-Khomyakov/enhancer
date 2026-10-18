@@ -413,6 +413,15 @@ export default class SettingsModule extends TwitchModule {
 				dependsOn: { key: "crossPlatformFollowsSyncEnabled" },
 			},
 			{
+				id: "emoteBarEnabled",
+				title: "Enable Emote Bar",
+				description:
+					"Shows your most used emotes for the current channel above the chat input. Click to insert, Ctrl+Click to send, right-click twice to remove.",
+				type: "toggle",
+				categoryId: CATEGORY.EXPERIMENTAL,
+				requiresRefreshToDisable: true,
+			},
+			{
 				id: "about",
 				title: "About This Extension",
 				description: "Information about the extension",
