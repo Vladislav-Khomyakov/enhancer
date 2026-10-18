@@ -2,6 +2,7 @@ import type WorkerService from "$shared/worker/worker.service.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
 import type {
 	CrossPlatformChannel,
+	FollowsPlatformFilter,
 	FollowsSortOrder,
 } from "$types/shared/worker/cross-platform-follows-worker.types.ts";
 
@@ -12,6 +13,8 @@ export type CrossPlatformFollowsComponentProps = {
 	pinsEnabled: boolean;
 	sort: FollowsSortOrder;
 	onSortChange: (sort: FollowsSortOrder) => void;
+	platformFilter: FollowsPlatformFilter;
+	onPlatformFilterChange: (filter: FollowsPlatformFilter) => void;
 	onNavigate: (url: string) => void;
 };
 
