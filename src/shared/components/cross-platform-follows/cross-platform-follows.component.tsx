@@ -10,8 +10,10 @@ import {
 	PLATFORM_COLORS,
 	PLATFORM_NAMES,
 	PLATFORM_URLS,
+	PlatformIcon,
 	PlatformLabel,
 } from "$shared/components/cross-platform-follows/platform.shared.tsx";
+import { filterFollowsByPlatform, FOLLOWS_PLATFORM_FILTERS } from "$shared/utils/follows-filter.utils.ts";
 import { SortMenuComponent } from "$shared/components/sort-menu/sort-menu.component.tsx";
 import { StreamPreviewComponent } from "$shared/components/stream-preview/stream-preview.component.tsx";
 import { TooltipComponent } from "$shared/components/tooltip/tooltip.component.tsx";
@@ -26,6 +28,7 @@ import type {
 import type { PlatformType } from "$types/shared/platform.types.ts";
 import type {
 	CrossPlatformFollowsSnapshot,
+	FollowsPlatformFilter,
 	FollowsSortOrder,
 } from "$types/shared/worker/cross-platform-follows-worker.types.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
@@ -44,11 +47,14 @@ export function CrossPlatformFollowsComponent({
 	pinsEnabled,
 	sort: savedSort,
 	onSortChange,
+	platformFilter: savedPlatformFilter,
+	onPlatformFilterChange,
 	onNavigate,
 }: CrossPlatformFollowsComponentProps) {
 	const [snapshots, setSnapshots] = useState<Partial<Record<PlatformType, CrossPlatformFollowsSnapshot>>>({});
 	const [pages, setPages] = useState(1);
 	const [sort, setSort] = useState<FollowsSortOrder>(savedSort);
+	const [platformFilter, setPlatformFilter] = useState<FollowsPlatformFilter>(savedPlatformFilter);
 	const [compact, setCompact] = useState(false);
 	const [now, setNow] = useState(() => Date.now());
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -94,6 +100,8 @@ export function CrossPlatformFollowsComponent({
 
 	useEffect(() => setSort(savedSort), [savedSort]);
 
+	useEffect(() => setPlatformFilter(savedPlatformFilter), [savedPlatformFilter]);
+
 	useEffect(() => {
 		const element = containerRef.current;
 		if (!element) return;
@@ -126,10 +134,22 @@ export function CrossPlatformFollowsComponent({
 		onSortChange(option);
 	};
 
-	const pinnedCount = channels.filter((channel) => channel.pinned).length;
+	const changePlatformFilter = (option: FollowsPlatformFilter) => {
+		if (option === platformFilter) return;
+		setPlatformFilter(option);
+		setPages(1);
+		onPlatformFilterChange(option);
+	};
+
+	const filtered = useMemo(() => filterFollowsByPlatform(channels, platformFilter), [channels, platformFilter]);
+	const pinnedCount = filtered.filter((channel) => channel.pinned).length;
 	const visible = compact
 		? channels.filter((channel) => channel.live)
-		: channels.slice(0, Math.max(COLLAPSED_COUNT * pages, pinnedCount));
+		: filtered.slice(0, Math.max(COLLAPSED_COUNT * pages, pinnedCount));
+	const emptyFilterText =
+		platformFilter !== "all" && filtered.length === 0 && snapshots[platformFilter]?.synced
+			? `You don't follow anyone on ${PLATFORM_NAMES[platformFilter]} yet.`
+			: null;
 	useFlipAnimation(
 		listRef,
 		visible.map((channel) => `${channel.platform}:${channel.login}`),
@@ -209,12 +229,30 @@ export function CrossPlatformFollowsComponent({
 					</TooltipComponent>
 				)}
 			</Header>
+			{!compact && unsorted.length > 0 && (
+				<FilterBar $host={hostPlatform} role="group" aria-label="Filter followed channels by platform">
+					{FOLLOWS_PLATFORM_FILTERS.map((option) => (
+						<FilterButton
+							key={option}
+							type="button"
+							aria-pressed={platformFilter === option}
+							$host={hostPlatform}
+							$active={platformFilter === option}
+							onClick={() => changePlatformFilter(option)}
+						>
+							{option !== "all" && <PlatformIcon platform={option} size={12} />}
+							{option === "all" ? "All" : PLATFORM_NAMES[option]}
+						</FilterButton>
+					))}
+				</FilterBar>
+			)}
 			{!compact &&
 				notices.map((notice) => (
 					<Notice key={notice} $host={hostPlatform}>
 						{notice}
 					</Notice>
 				))}
+			{!compact && emptyFilterText && <Notice $host={hostPlatform}>{emptyFilterText}</Notice>}
 			<List ref={listRef} $spaced={compact && hostPlatform === "kick"}>
 				{visible.map((channel) => (
 					<ChannelRow
@@ -229,9 +267,9 @@ export function CrossPlatformFollowsComponent({
 					/>
 				))}
 			</List>
-			{!compact && (channels.length > visible.length || pages > 1) && (
+			{!compact && (filtered.length > visible.length || pages > 1) && (
 				<ToggleRow>
-					{channels.length > visible.length && (
+					{filtered.length > visible.length && (
 						<ToggleButton $host={hostPlatform} onClick={() => setPages(pages + 1)}>
 							Show more
 						</ToggleButton>
@@ -457,6 +495,52 @@ const SortControl = styled.span<HostProps>`
 		color: ${({ $host }) => ($host === "kick" ? "#fff" : "var(--color-text-base)")};
 		background: ${({ $host }) =>
 			$host === "kick" ? "rgba(255, 255, 255, 0.08)" : "var(--color-background-button-text-hover)"};
+	}
+`;
+
+const FilterBar = styled.div<HostProps>`
+	display: flex;
+	gap: 4px;
+	padding: ${({ $host }) => ($host === "kick" ? "0 6px" : "0 8px 6px")};
+`;
+
+const FilterButton = styled.button<HostProps & { $active: boolean }>`
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	height: 24px;
+	padding: 0 8px;
+	border: none;
+	cursor: pointer;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	border-radius: ${({ $host }) => ($host === "kick" ? "6px" : "var(--border-radius-medium)")};
+
+	${({ $host, $active }) =>
+		$host === "kick"
+			? css`
+					color: ${$active ? "#fff" : "rgba(255, 255, 255, 0.6)"};
+					background: ${$active ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.04)"};
+					&:hover {
+						color: #fff;
+						background: ${$active ? "rgba(255, 255, 255, 0.16)" : "rgba(255, 255, 255, 0.08)"};
+					}
+				`
+			: css`
+					color: ${$active ? "var(--color-text-base)" : "var(--color-text-alt-2)"};
+					background: ${$active ? "var(--color-background-button-secondary-default)" : "transparent"};
+					&:hover {
+						color: var(--color-text-base);
+						background: ${
+							$active ? "var(--color-background-button-secondary-hover)" : "var(--color-background-button-text-hover)"
+						};
+					}
+				`}
+
+	svg {
+		display: block;
+		flex-shrink: 0;
 	}
 `;
 
