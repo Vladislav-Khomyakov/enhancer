@@ -196,7 +196,34 @@ export function CrossPlatformFollowsComponent({
 						/>
 					</svg>
 				)}
-				{!compact && <HeaderTitle>{title ?? "Followed Channels"}</HeaderTitle>}
+				{!compact && unsorted.length > 0 && (
+					<FilterBar role="group" aria-label="Filter followed channels by platform">
+						{FOLLOWS_PLATFORM_FILTERS.map((option) => {
+							const button = (
+								<FilterButton
+									key={option}
+									type="button"
+									aria-pressed={platformFilter === option}
+									aria-label={option === "all" ? undefined : PLATFORM_NAMES[option]}
+									$host={hostPlatform}
+									$active={platformFilter === option}
+									$icon={option !== "all"}
+									onClick={() => changePlatformFilter(option)}
+								>
+									{option === "all" ? "All" : <PlatformIcon platform={option} size={14} />}
+								</FilterButton>
+							);
+							return option === "all" ? (
+								button
+							) : (
+								<TooltipComponent key={option} content={PLATFORM_NAMES[option]} position="top">
+									{button}
+								</TooltipComponent>
+							);
+						})}
+					</FilterBar>
+				)}
+				{!compact && unsorted.length === 0 && <HeaderTitle>{title ?? "Followed Channels"}</HeaderTitle>}
 				{!compact && staleText && (
 					<TooltipComponent content={staleText} position="top">
 						<StaleBadge>!</StaleBadge>
@@ -229,23 +256,6 @@ export function CrossPlatformFollowsComponent({
 					</TooltipComponent>
 				)}
 			</Header>
-			{!compact && unsorted.length > 0 && (
-				<FilterBar $host={hostPlatform} role="group" aria-label="Filter followed channels by platform">
-					{FOLLOWS_PLATFORM_FILTERS.map((option) => (
-						<FilterButton
-							key={option}
-							type="button"
-							aria-pressed={platformFilter === option}
-							$host={hostPlatform}
-							$active={platformFilter === option}
-							onClick={() => changePlatformFilter(option)}
-						>
-							{option !== "all" && <PlatformIcon platform={option} size={12} />}
-							{option === "all" ? "All" : PLATFORM_NAMES[option]}
-						</FilterButton>
-					))}
-				</FilterBar>
-			)}
 			{!compact &&
 				notices.map((notice) => (
 					<Notice key={notice} $host={hostPlatform}>
@@ -498,18 +508,21 @@ const SortControl = styled.span<HostProps>`
 	}
 `;
 
-const FilterBar = styled.div<HostProps>`
+const FilterBar = styled.div`
+	flex: 1;
 	display: flex;
+	align-items: center;
 	gap: 4px;
-	padding: ${({ $host }) => ($host === "kick" ? "0 6px" : "0 8px 6px")};
+	min-width: 0;
 `;
 
-const FilterButton = styled.button<HostProps & { $active: boolean }>`
+const FilterButton = styled.button<HostProps & { $active: boolean; $icon: boolean }>`
 	display: inline-flex;
 	align-items: center;
-	gap: 5px;
-	height: 24px;
-	padding: 0 8px;
+	justify-content: center;
+	height: 28px;
+	min-width: 28px;
+	padding: ${({ $icon }) => ($icon ? "0" : "0 10px")};
 	border: none;
 	cursor: pointer;
 	font: inherit;
