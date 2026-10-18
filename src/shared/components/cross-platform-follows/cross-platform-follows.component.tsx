@@ -20,12 +20,19 @@ import { TooltipComponent } from "$shared/components/tooltip/tooltip.component.t
 import { getPlaylistFetcher } from "$shared/utils/playlist-proxy.utils.ts";
 import { FLIP_KEY_ATTRIBUTE, useBecameTrue, useFlipAnimation } from "$shared/utils/flip-animation.utils.ts";
 import { FOLLOWS_SORT_LABELS } from "$shared/utils/follows-sort.utils.ts";
+import { getFollowEntryKey, mergeLinkedChannels } from "$shared/utils/follows-links.utils.ts";
+import {
+	ChannelContextMenu,
+	LinkChannelDialog,
+} from "$shared/components/cross-platform-follows/link-channel.component.tsx";
 import type {
+	ChannelMenuState,
 	CrossPlatformFollowsComponentProps,
 	SidebarChannel,
 	SidebarChannelRowProps,
 } from "$types/shared/components/cross-platform-follows.component.types.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
+import type { ChannelLink } from "$types/shared/worker/channel-links-worker.types.ts";
 import type {
 	CrossPlatformFollowsSnapshot,
 	FollowsPlatformFilter,
@@ -51,6 +58,9 @@ export function CrossPlatformFollowsComponent({
 	onPlatformFilterChange,
 	onNavigate,
 }: CrossPlatformFollowsComponentProps) {
+	const [links, setLinks] = useState<ChannelLink[]>([]);
+	const [menu, setMenu] = useState<ChannelMenuState | null>(null);
+	const [linking, setLinking] = useState<SidebarChannel | null>(null);
 	const [snapshots, setSnapshots] = useState<Partial<Record<PlatformType, CrossPlatformFollowsSnapshot>>>({});
 	const [pages, setPages] = useState(1);
 	const [sort, setSort] = useState<FollowsSortOrder>(savedSort);
@@ -98,6 +108,19 @@ export function CrossPlatformFollowsComponent({
 		};
 	}, [workerService]);
 
+	useEffect(() => {
+		let disposed = false;
+		const handleLinks = (payload: { links: ChannelLink[] }) => {
+			if (!disposed) setLinks(payload.links);
+		};
+		workerService.onBroadcast("channel-links-updated", handleLinks);
+		void workerService.send("getChannelLinks", {}).then((payload) => payload && handleLinks(payload));
+		return () => {
+			disposed = true;
+			workerService.offBroadcast("channel-links-updated", handleLinks);
+		};
+	}, [workerService]);
+
 	useEffect(() => setSort(savedSort), [savedSort]);
 
 	useEffect(() => setPlatformFilter(savedPlatformFilter), [savedPlatformFilter]);
@@ -120,8 +143,8 @@ export function CrossPlatformFollowsComponent({
 				list.push({ ...channel, pinned: pinsEnabled && channel.pinned, platform: snapshot!.platform });
 			}
 		}
-		return list;
-	}, [hostSnapshot, sourceSnapshot, pinsEnabled]);
+		return mergeLinkedChannels(list, links);
+	}, [hostSnapshot, sourceSnapshot, pinsEnabled, links]);
 	const sortOptions = getFollowsSortOptions(unsorted);
 	const activeSort = sortOptions.includes(sort) ? sort : "viewers-desc";
 	const channels = useMemo(
@@ -152,7 +175,7 @@ export function CrossPlatformFollowsComponent({
 			: null;
 	useFlipAnimation(
 		listRef,
-		visible.map((channel) => `${channel.platform}:${channel.login}`),
+		visible.map((channel) => getFollowEntryKey(channel)),
 	);
 	const notices: string[] = [];
 	if (!hostSnapshot?.synced) notices.push(`Loading your ${PLATFORM_NAMES[hostPlatform]} follows…`);
@@ -176,14 +199,56 @@ export function CrossPlatformFollowsComponent({
 
 	const togglePin = (channel: SidebarChannel) => {
 		const pinned = !channel.pinned;
+		const targets = channel.linked ? Object.values(channel.linked.channels) : [channel];
 		setSnapshots((previous) => {
-			const snapshot = previous[channel.platform];
-			if (!snapshot) return previous;
-			const updated = snapshot.channels.map((item) => (item.login === channel.login ? { ...item, pinned } : item));
-			return { ...previous, [channel.platform]: { ...snapshot, channels: updated } };
+			const next = { ...previous };
+			for (const target of targets) {
+				const snapshot = next[target.platform];
+				if (!snapshot) continue;
+				const updated = snapshot.channels.map((item) => (item.login === target.login ? { ...item, pinned } : item));
+				next[target.platform] = { ...snapshot, channels: updated };
+			}
+			return next;
 		});
-		void workerService.send("setChannelPinned", { platform: channel.platform, login: channel.login, pinned });
+		for (const target of targets) {
+			void workerService.send("setChannelPinned", { platform: target.platform, login: target.login, pinned });
+		}
 	};
+
+	const replaceLinks = (next: ChannelLink[], request: Promise<{ links: ChannelLink[] } | null>) => {
+		setLinks(next);
+		void request.then((payload) => payload && setLinks(payload.links));
+	};
+
+	const saveLink = (link: ChannelLink) =>
+		replaceLinks(
+			[...links.filter((item) => item.twitch !== link.twitch && item.kick !== link.kick), link],
+			workerService.send("updateChannelLink", link),
+		);
+
+	const linkChannels = (source: SidebarChannel, target: SidebarChannel, primary: PlatformType) => {
+		const [twitch, kick] = source.platform === "twitch" ? [source, target] : [target, source];
+		saveLink({ twitch: twitch.login, kick: kick.login, primary });
+		setLinking(null);
+	};
+
+	const preferPlatform = (channel: SidebarChannel, primary: PlatformType) => {
+		if (!channel.linked) return;
+		const { twitch, kick } = channel.linked.channels;
+		saveLink({ twitch: twitch.login, kick: kick.login, primary });
+	};
+
+	const unlink = (channel: SidebarChannel) => {
+		if (!channel.linked) return;
+		const { twitch, kick } = channel.linked.channels;
+		replaceLinks(
+			links.filter((item) => item.twitch !== twitch.login || item.kick !== kick.login),
+			workerService.send("removeChannelLink", { twitch: twitch.login, kick: kick.login }),
+		);
+	};
+
+	const openMenu = (event: MouseEvent, channel: SidebarChannel) =>
+		setMenu({ channel, anchor: event.currentTarget as Element, x: event.clientX, y: event.clientY });
 
 	return (
 		<Container ref={containerRef} $host={hostPlatform} $compact={compact}>
@@ -266,12 +331,13 @@ export function CrossPlatformFollowsComponent({
 			<List ref={listRef} $spaced={compact && hostPlatform === "kick"}>
 				{visible.map((channel) => (
 					<ChannelRow
-						key={`${channel.platform}:${channel.login}`}
+						key={getFollowEntryKey(channel)}
 						channel={channel}
 						host={hostPlatform}
 						compact={compact}
 						now={now}
 						onTogglePin={pinsEnabled ? togglePin : undefined}
+						onContextMenu={compact ? undefined : openMenu}
 						onNavigate={onNavigate}
 						resolvePreviewUrl={resolvePreviewUrl}
 					/>
@@ -291,6 +357,27 @@ export function CrossPlatformFollowsComponent({
 					)}
 				</ToggleRow>
 			)}
+			{menu && (
+				<ChannelContextMenu
+					{...menu}
+					host={hostPlatform}
+					pinsEnabled={pinsEnabled}
+					onTogglePin={togglePin}
+					onLink={setLinking}
+					onPrefer={preferPlatform}
+					onUnlink={unlink}
+					onClose={() => setMenu(null)}
+				/>
+			)}
+			{linking && (
+				<LinkChannelDialog
+					channel={linking}
+					channels={unsorted}
+					host={hostPlatform}
+					onLink={(target, primary) => linkChannels(linking, target, primary)}
+					onClose={() => setLinking(null)}
+				/>
+			)}
 		</Container>
 	);
 }
@@ -301,6 +388,7 @@ function ChannelRow({
 	compact,
 	now,
 	onTogglePin,
+	onContextMenu,
 	onNavigate,
 	resolvePreviewUrl,
 }: SidebarChannelRowProps) {
@@ -365,13 +453,18 @@ function ChannelRow({
 			key={wentLive}
 			href={url}
 			onClick={handleClick}
+			onContextMenu={(event: MouseEvent) => {
+				if (!onContextMenu || event.shiftKey) return;
+				event.preventDefault();
+				onContextMenu(event, channel);
+			}}
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => {
 				setHovered(false);
 				setPreviewPlaying(false);
 				setPreviewFailed(false);
 			}}
-			{...{ [FLIP_KEY_ATTRIBUTE]: `${channel.platform}:${channel.login}` }}
+			{...{ [FLIP_KEY_ATTRIBUTE]: getFollowEntryKey(channel) }}
 			$host={host}
 			$compact={compact}
 			$live={channel.live}
@@ -380,7 +473,12 @@ function ChannelRow({
 			<Avatar $host={host} $live={channel.live}>
 				{channel.avatarUrl ? <img src={channel.avatarUrl} alt="" loading="lazy" /> : <AvatarFallback />}
 				{compact && channel.live && <CompactLiveDot $host={host} />}
-				<PlatformDot $host={host} $platform={channel.platform} title={PLATFORM_NAMES[channel.platform]} />
+				<PlatformDot
+					$host={host}
+					$platform={channel.platform}
+					$linked={!!channel.linked}
+					title={channel.linked ? "Linked Twitch and Kick channels" : PLATFORM_NAMES[channel.platform]}
+				/>
 				{!compact && onTogglePin && (
 					<PinButton
 						role="button"
@@ -774,7 +872,7 @@ const TooltipViewers = styled.span`
 	}
 `;
 
-const PlatformDot = styled.span<HostProps & { $platform: PlatformType }>`
+const PlatformDot = styled.span<HostProps & { $platform: PlatformType; $linked: boolean }>`
 	position: absolute;
 	right: -3px;
 	bottom: -3px;
@@ -782,7 +880,10 @@ const PlatformDot = styled.span<HostProps & { $platform: PlatformType }>`
 	width: 12px;
 	height: 12px;
 	border-radius: 50%;
-	background: ${({ $platform }) => PLATFORM_COLORS[$platform]};
+	background: ${({ $platform, $linked }) =>
+		$linked
+			? `linear-gradient(90deg, ${PLATFORM_COLORS.twitch} 50%, ${PLATFORM_COLORS.kick} 50%)`
+			: PLATFORM_COLORS[$platform]};
 	border: 2px solid ${({ $host }) => ($host === "kick" ? "#090b0f" : "var(--color-background-base)")};
 `;
 
