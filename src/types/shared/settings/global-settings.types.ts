@@ -1,3 +1,4 @@
+import type { FollowsLinkedPlatform } from "$types/shared/worker/channel-links-worker.types.ts";
 import type { FollowsSortOrder } from "$types/shared/worker/cross-platform-follows-worker.types.ts";
 
 export type GlobalSettings = {
@@ -6,6 +7,7 @@ export type GlobalSettings = {
 	followsHomeEnabled: boolean;
 	pinnedStreamersEnabled: boolean;
 	followsSort: FollowsSortOrder;
+	followsLinkedPlatform: FollowsLinkedPlatform;
 };
 
 export type GlobalSettingsEvents = {

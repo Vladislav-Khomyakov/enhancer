@@ -1,6 +1,7 @@
 import KickModule from "$kick/kick.module.ts";
 import { CrossPlatformFollowsComponent } from "$shared/components/cross-platform-follows/cross-platform-follows.component.tsx";
 import type { KickModuleConfig } from "$types/shared/module/module.types.ts";
+import type { FollowsLinkedPlatform } from "$types/shared/worker/channel-links-worker.types.ts";
 import type { FollowsSortOrder } from "$types/shared/worker/cross-platform-follows-worker.types.ts";
 import { render } from "preact";
 
@@ -30,6 +31,7 @@ export default class CrossPlatformFollowsModule extends KickModule {
 	private title: string | null | undefined;
 	private pinsEnabled: boolean | undefined;
 	private sort: FollowsSortOrder | undefined;
+	private linkedPlatform: FollowsLinkedPlatform | undefined;
 	private native: Element[] = [];
 	private anchor: Element | null = null;
 
@@ -71,11 +73,23 @@ export default class CrossPlatformFollowsModule extends KickModule {
 
 	private renderComponent(): void {
 		const title = this.readTitle();
-		const { pinnedStreamersEnabled: pinsEnabled, followsSort: sort } = this.globalSettings();
-		if (!this.container || (title === this.title && pinsEnabled === this.pinsEnabled && sort === this.sort)) return;
+		const {
+			pinnedStreamersEnabled: pinsEnabled,
+			followsSort: sort,
+			followsLinkedPlatform: linkedPlatform,
+		} = this.globalSettings();
+		if (
+			!this.container ||
+			(title === this.title &&
+				pinsEnabled === this.pinsEnabled &&
+				sort === this.sort &&
+				linkedPlatform === this.linkedPlatform)
+		)
+			return;
 		this.title = title;
 		this.pinsEnabled = pinsEnabled;
 		this.sort = sort;
+		this.linkedPlatform = linkedPlatform;
 		render(
 			<CrossPlatformFollowsComponent
 				hostPlatform="kick"
@@ -84,6 +98,7 @@ export default class CrossPlatformFollowsModule extends KickModule {
 				pinsEnabled={pinsEnabled}
 				sort={sort}
 				onSortChange={(next) => void this.updateGlobalSetting("followsSort", next)}
+				linkedPlatform={linkedPlatform}
 				onNavigate={(url) => this.kickUtils().navigate(url)}
 			/>,
 			this.container,

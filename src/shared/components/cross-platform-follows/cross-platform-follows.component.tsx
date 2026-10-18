@@ -10,6 +10,7 @@ import {
 	PLATFORM_COLORS,
 	PLATFORM_NAMES,
 	PLATFORM_URLS,
+	PlatformIcon,
 	PlatformLabel,
 } from "$shared/components/cross-platform-follows/platform.shared.tsx";
 import { SortMenuComponent } from "$shared/components/sort-menu/sort-menu.component.tsx";
@@ -18,12 +19,15 @@ import { TooltipComponent } from "$shared/components/tooltip/tooltip.component.t
 import { getPlaylistFetcher } from "$shared/utils/playlist-proxy.utils.ts";
 import { FLIP_KEY_ATTRIBUTE, useBecameTrue, useFlipAnimation } from "$shared/utils/flip-animation.utils.ts";
 import { FOLLOWS_SORT_LABELS } from "$shared/utils/follows-sort.utils.ts";
+import { findLinkSuggestions, getFollowEntryKey, mergeLinkedChannels } from "$shared/utils/follows-links.utils.ts";
 import type {
 	CrossPlatformFollowsComponentProps,
+	LinkMenuOption,
 	SidebarChannel,
 	SidebarChannelRowProps,
 } from "$types/shared/components/cross-platform-follows.component.types.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
+import type { ChannelLink } from "$types/shared/worker/channel-links-worker.types.ts";
 import type {
 	CrossPlatformFollowsSnapshot,
 	FollowsSortOrder,
@@ -44,8 +48,11 @@ export function CrossPlatformFollowsComponent({
 	pinsEnabled,
 	sort: savedSort,
 	onSortChange,
+	linkedPlatform,
 	onNavigate,
 }: CrossPlatformFollowsComponentProps) {
+	const [links, setLinks] = useState<ChannelLink[]>([]);
+	const [linking, setLinking] = useState<SidebarChannel | null>(null);
 	const [snapshots, setSnapshots] = useState<Partial<Record<PlatformType, CrossPlatformFollowsSnapshot>>>({});
 	const [pages, setPages] = useState(1);
 	const [sort, setSort] = useState<FollowsSortOrder>(savedSort);
@@ -92,6 +99,28 @@ export function CrossPlatformFollowsComponent({
 		};
 	}, [workerService]);
 
+	useEffect(() => {
+		let disposed = false;
+		const handleLinks = (payload: { links: ChannelLink[] }) => {
+			if (!disposed) setLinks(payload.links);
+		};
+		workerService.onBroadcast("channel-links-updated", handleLinks);
+		void workerService.send("getChannelLinks", {}).then((payload) => payload && handleLinks(payload));
+		return () => {
+			disposed = true;
+			workerService.offBroadcast("channel-links-updated", handleLinks);
+		};
+	}, [workerService]);
+
+	useEffect(() => {
+		if (!linking) return;
+		const handleKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setLinking(null);
+		};
+		document.addEventListener("keydown", handleKey);
+		return () => document.removeEventListener("keydown", handleKey);
+	}, [linking]);
+
 	useEffect(() => setSort(savedSort), [savedSort]);
 
 	useEffect(() => {
@@ -112,14 +141,15 @@ export function CrossPlatformFollowsComponent({
 				list.push({ ...channel, pinned: pinsEnabled && channel.pinned, platform: snapshot!.platform });
 			}
 		}
-		return list;
-	}, [hostSnapshot, sourceSnapshot, pinsEnabled]);
+		return mergeLinkedChannels(list, links, linkedPlatform, hostPlatform);
+	}, [hostSnapshot, sourceSnapshot, pinsEnabled, links, linkedPlatform, hostPlatform]);
 	const sortOptions = getFollowsSortOptions(unsorted);
 	const activeSort = sortOptions.includes(sort) ? sort : "viewers-desc";
-	const channels = useMemo(
-		() => [...unsorted].sort(getFollowsComparator(activeSort, now)),
-		[unsorted, activeSort, now],
-	);
+	const sorted = useMemo(() => [...unsorted].sort(getFollowsComparator(activeSort, now)), [unsorted, activeSort, now]);
+	const channels = linking
+		? sorted.filter((channel) => !channel.linked && channel.platform !== linking.platform)
+		: sorted;
+	const suggestion = linking || compact ? undefined : findLinkSuggestions(sorted, links)[0];
 
 	const changeSort = (option: FollowsSortOrder) => {
 		setSort(option);
@@ -132,7 +162,7 @@ export function CrossPlatformFollowsComponent({
 		: channels.slice(0, Math.max(COLLAPSED_COUNT * pages, pinnedCount));
 	useFlipAnimation(
 		listRef,
-		visible.map((channel) => `${channel.platform}:${channel.login}`),
+		visible.map((channel) => getFollowEntryKey(channel)),
 	);
 	const notices: string[] = [];
 	if (!hostSnapshot?.synced) notices.push(`Loading your ${PLATFORM_NAMES[hostPlatform]} follows…`);
@@ -156,13 +186,55 @@ export function CrossPlatformFollowsComponent({
 
 	const togglePin = (channel: SidebarChannel) => {
 		const pinned = !channel.pinned;
+		const targets = channel.linked ? Object.values(channel.linked.channels) : [channel];
 		setSnapshots((previous) => {
-			const snapshot = previous[channel.platform];
-			if (!snapshot) return previous;
-			const updated = snapshot.channels.map((item) => (item.login === channel.login ? { ...item, pinned } : item));
-			return { ...previous, [channel.platform]: { ...snapshot, channels: updated } };
+			const next = { ...previous };
+			for (const target of targets) {
+				const snapshot = next[target.platform];
+				if (!snapshot) continue;
+				const updated = snapshot.channels.map((item) => (item.login === target.login ? { ...item, pinned } : item));
+				next[target.platform] = { ...snapshot, channels: updated };
+			}
+			return next;
 		});
-		void workerService.send("setChannelPinned", { platform: channel.platform, login: channel.login, pinned });
+		for (const target of targets) {
+			void workerService.send("setChannelPinned", { platform: target.platform, login: target.login, pinned });
+		}
+	};
+
+	const updateLink = (link: ChannelLink) => {
+		setLinks((previous) => [
+			...previous.filter(
+				(item) =>
+					!(item.twitch === link.twitch && item.kick === link.kick) &&
+					(link.dismissed || item.dismissed || (item.twitch !== link.twitch && item.kick !== link.kick)),
+			),
+			link,
+		]);
+		void workerService.send("updateChannelLink", link).then((payload) => payload && setLinks(payload.links));
+	};
+
+	const handleLinkAction = (channel: SidebarChannel, option: LinkMenuOption) => {
+		if (option === "link") {
+			setLinking(channel);
+			return;
+		}
+		if (!channel.linked) return;
+		const { twitch, kick } = channel.linked.channels;
+		const primary = option === "default" || option === "unlink" ? null : option;
+		updateLink({ twitch: twitch.login, kick: kick.login, primary, dismissed: option === "unlink" });
+	};
+
+	const pickLinkTarget = (target: SidebarChannel) => {
+		if (!linking) return;
+		const [twitch, kick] = linking.platform === "twitch" ? [linking, target] : [target, linking];
+		updateLink({ twitch: twitch.login, kick: kick.login, primary: null, dismissed: false });
+		setLinking(null);
+	};
+
+	const answerSuggestion = (dismissed: boolean) => {
+		if (!suggestion) return;
+		updateLink({ twitch: suggestion.twitch.login, kick: suggestion.kick.login, primary: null, dismissed });
 	};
 
 	return (
@@ -215,15 +287,45 @@ export function CrossPlatformFollowsComponent({
 						{notice}
 					</Notice>
 				))}
+			{!compact && linking && (
+				<LinkPrompt $host={hostPlatform}>
+					<span>
+						Choose the {PLATFORM_NAMES[linking.platform === "twitch" ? "kick" : "twitch"]} channel of{" "}
+						<strong>{linking.displayName}</strong>.
+					</span>
+					<LinkPromptActions>
+						<ToggleButton $host={hostPlatform} onClick={() => setLinking(null)}>
+							Cancel
+						</ToggleButton>
+					</LinkPromptActions>
+				</LinkPrompt>
+			)}
+			{suggestion && (
+				<LinkPrompt $host={hostPlatform}>
+					<span>
+						<strong>{suggestion[hostPlatform].displayName}</strong> is on Twitch and Kick. Show as one channel?
+					</span>
+					<LinkPromptActions>
+						<ToggleButton $host={hostPlatform} onClick={() => answerSuggestion(false)}>
+							Link
+						</ToggleButton>
+						<ToggleButton $host={hostPlatform} onClick={() => answerSuggestion(true)}>
+							No thanks
+						</ToggleButton>
+					</LinkPromptActions>
+				</LinkPrompt>
+			)}
 			<List ref={listRef} $spaced={compact && hostPlatform === "kick"}>
 				{visible.map((channel) => (
 					<ChannelRow
-						key={`${channel.platform}:${channel.login}`}
+						key={getFollowEntryKey(channel)}
 						channel={channel}
 						host={hostPlatform}
 						compact={compact}
 						now={now}
-						onTogglePin={pinsEnabled ? togglePin : undefined}
+						onTogglePin={pinsEnabled && !linking ? togglePin : undefined}
+						onLinkAction={linking ? undefined : handleLinkAction}
+						onPick={linking ? pickLinkTarget : undefined}
 						onNavigate={onNavigate}
 						resolvePreviewUrl={resolvePreviewUrl}
 					/>
@@ -253,6 +355,8 @@ function ChannelRow({
 	compact,
 	now,
 	onTogglePin,
+	onLinkAction,
+	onPick,
 	onNavigate,
 	resolvePreviewUrl,
 }: SidebarChannelRowProps) {
@@ -297,10 +401,26 @@ function ChannelRow({
 			) : (
 				<TooltipMeta>{subtitle}</TooltipMeta>
 			)}
+			{channel.linked &&
+				PLATFORMS.map((platform) => {
+					const item = channel.linked!.channels[platform];
+					return (
+						<TooltipMeta key={platform}>
+							<PlatformLabel platform={platform} />
+							<span>{item.login}</span>
+							{item.live ? <TooltipViewers>{formatViewers(item.viewers)}</TooltipViewers> : <span>Offline</span>}
+						</TooltipMeta>
+					);
+				})}
 		</TooltipContent>
 	);
 
 	const handleClick = (event: MouseEvent) => {
+		if (onPick) {
+			event.preventDefault();
+			onPick(channel);
+			return;
+		}
 		if (channel.platform !== host || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
 		event.preventDefault();
 		onNavigate(url);
@@ -310,6 +430,14 @@ function ChannelRow({
 		event.preventDefault();
 		event.stopPropagation();
 		onTogglePin?.(channel);
+	};
+
+	const linkLabels: Record<LinkMenuOption, string> = {
+		default: "Open default site",
+		twitch: "Open on Twitch",
+		kick: "Open on Kick",
+		unlink: "Unlink channels",
+		link: `Link with a ${PLATFORM_NAMES[channel.platform === "twitch" ? "kick" : "twitch"]} channel…`,
 	};
 
 	const row = (
@@ -323,7 +451,7 @@ function ChannelRow({
 				setPreviewPlaying(false);
 				setPreviewFailed(false);
 			}}
-			{...{ [FLIP_KEY_ATTRIBUTE]: `${channel.platform}:${channel.login}` }}
+			{...{ [FLIP_KEY_ATTRIBUTE]: getFollowEntryKey(channel) }}
 			$host={host}
 			$compact={compact}
 			$live={channel.live}
@@ -345,11 +473,43 @@ function ChannelRow({
 						<PinIcon filled={channel.pinned} size={12} />
 					</PinButton>
 				)}
+				{!compact && onLinkAction && (
+					<LinkControl
+						data-row-action
+						$host={host}
+						$linked={!!channel.linked}
+						onClick={(event: MouseEvent) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+					>
+						<SortMenuComponent<LinkMenuOption>
+							value={channel.linked?.primary ?? "default"}
+							options={channel.linked ? ["default", "twitch", "kick", "unlink"] : ["link"]}
+							labels={linkLabels}
+							onChange={(option) => onLinkAction(channel, option)}
+							theme={host}
+							label={channel.linked ? "Linked channel options" : "Link channels"}
+							renderTrigger={() => <LinkIcon />}
+						/>
+					</LinkControl>
+				)}
 			</Avatar>
 			{!compact && (
 				<>
 					<Meta>
-						<Name $host={host}>{channel.displayName}</Name>
+						<NameRow>
+							<Name $host={host}>{channel.displayName}</Name>
+							{channel.linked && (
+								<LinkedBadge title={describeLinkedLive(channel)} aria-label={describeLinkedLive(channel)}>
+									{PLATFORMS.map((platform) => (
+										<LinkedBadgeIcon key={platform} $live={channel.linked!.channels[platform].live}>
+											<PlatformIcon platform={platform} size={10} />
+										</LinkedBadgeIcon>
+									))}
+								</LinkedBadge>
+							)}
+						</NameRow>
 						<Subtitle $host={host}>
 							<MarqueeTextComponent text={subtitle} active={hovered} />
 						</Subtitle>
@@ -371,6 +531,25 @@ function ChannelRow({
 		</TooltipComponent>
 	);
 }
+
+function describeLinkedLive(channel: SidebarChannel): string {
+	const live = PLATFORMS.filter((platform) => channel.linked?.channels[platform].live);
+	const status = live.length ? `live on ${live.map((platform) => PLATFORM_NAMES[platform]).join(" and ")}` : "offline";
+	return `Linked Twitch and Kick channels, ${status}`;
+}
+
+const LinkIcon = () => (
+	<svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true">
+		<path
+			d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1m2 5a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="3"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		/>
+	</svg>
+);
 
 type HostProps = { $host: PlatformType };
 
@@ -503,7 +682,8 @@ const Row = styled.a<HostProps & { $compact: boolean; $live: boolean; $wentLive:
 					&:hover {
 						background: rgba(255, 255, 255, 0.08);
 					}
-					&:hover [role="button"] {
+					&:hover [role="button"],
+					&:hover [data-row-action] {
 						opacity: 1;
 					}
 				`
@@ -515,7 +695,8 @@ const Row = styled.a<HostProps & { $compact: boolean; $live: boolean; $wentLive:
 					&:hover {
 						background: var(--color-background-interactable-hover);
 					}
-					&:hover [role="button"] {
+					&:hover [role="button"],
+					&:hover [data-row-action] {
 						opacity: 1;
 					}
 				`}
@@ -557,6 +738,86 @@ const Meta = styled.div`
 	flex: 1;
 	min-width: 0;
 	gap: 2px;
+`;
+
+const NameRow = styled.span`
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+`;
+
+const LinkedBadge = styled.span`
+	display: inline-flex;
+	align-items: center;
+	flex-shrink: 0;
+	gap: 2px;
+	padding: 1px 3px;
+	border-radius: 4px;
+	background: rgba(255, 255, 255, 0.08);
+
+	svg {
+		display: block;
+	}
+`;
+
+const LinkedBadgeIcon = styled.span<{ $live: boolean }>`
+	display: inline-flex;
+	opacity: ${({ $live }) => ($live ? 1 : 0.35)};
+	filter: ${({ $live }) => ($live ? "none" : "grayscale(1)")};
+`;
+
+const LinkControl = styled.span<HostProps & { $linked: boolean }>`
+	position: absolute;
+	left: -4px;
+	top: -6px;
+	display: flex;
+	opacity: 0;
+	transition: opacity 0.2s ease;
+
+	&:focus-within,
+	&:has([data-open]) {
+		opacity: 1;
+	}
+
+	> button {
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		border-radius: 3px;
+		color: white;
+		background: ${({ $host, $linked }) => ($linked ? PIN_COLORS[$host].background : "rgba(0, 0, 0, 0.4)")};
+	}
+
+	> button:hover {
+		background: ${({ $host, $linked }) => ($linked ? PIN_COLORS[$host].hover : "rgba(0, 0, 0, 0.6)")};
+	}
+`;
+
+const LinkPrompt = styled.div<HostProps>`
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: ${({ $host }) => ($host === "kick" ? "0" : "0 8px 6px")};
+	padding: 6px 8px 2px;
+	border-radius: 6px;
+	font-size: 12px;
+	line-height: 1.4;
+	background: rgba(255, 255, 255, 0.06);
+	color: ${({ $host }) => ($host === "kick" ? "rgba(255, 255, 255, 0.8)" : "var(--color-text-alt)")};
+
+	strong {
+		color: ${({ $host }) => ($host === "kick" ? "#fff" : "var(--color-text-base)")};
+	}
+
+	button {
+		padding: 4px 0;
+		margin-right: 12px;
+	}
+`;
+
+const LinkPromptActions = styled.div`
+	display: flex;
 `;
 
 const Name = styled.span<HostProps>`
