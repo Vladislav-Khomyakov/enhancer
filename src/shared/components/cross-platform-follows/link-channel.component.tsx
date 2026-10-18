@@ -27,10 +27,14 @@ const THEMES: Record<PlatformType, { background: string; accent: string; accentT
 
 const otherPlatform = (platform: PlatformType): PlatformType => (platform === "twitch" ? "kick" : "twitch");
 
-function useDismiss(ref: { current: HTMLElement | null }, onClose: () => void, closeOnScroll: boolean) {
+function useDismiss(ref: { current: HTMLElement | null }, onClose: () => void, anchor?: Element) {
 	useEffect(() => {
 		const close = (event: Event) => {
 			if (!ref.current?.contains(event.target as Node | null)) onClose();
+		};
+		const closeOnScroll = (event: Event) => {
+			const target = event.target;
+			if (target === document || (target instanceof Element && anchor && target.contains(anchor))) onClose();
 		};
 		const handleKey = (event: KeyboardEvent) => {
 			if (event.key === "Escape") onClose();
@@ -38,18 +42,19 @@ function useDismiss(ref: { current: HTMLElement | null }, onClose: () => void, c
 		document.addEventListener("pointerdown", close, true);
 		document.addEventListener("keydown", handleKey);
 		window.addEventListener("resize", onClose);
-		if (closeOnScroll) window.addEventListener("scroll", close, true);
+		if (anchor) window.addEventListener("scroll", closeOnScroll, true);
 		return () => {
 			document.removeEventListener("pointerdown", close, true);
 			document.removeEventListener("keydown", handleKey);
 			window.removeEventListener("resize", onClose);
-			window.removeEventListener("scroll", close, true);
+			window.removeEventListener("scroll", closeOnScroll, true);
 		};
 	}, [onClose]);
 }
 
 export function ChannelContextMenu({
 	channel,
+	anchor,
 	x,
 	y,
 	host,
@@ -61,7 +66,7 @@ export function ChannelContextMenu({
 	onClose,
 }: ChannelContextMenuProps) {
 	const menuRef = useRef<HTMLDivElement>(null);
-	useDismiss(menuRef, onClose, true);
+	useDismiss(menuRef, onClose, anchor);
 
 	useLayoutEffect(() => {
 		const menu = menuRef.current;
@@ -134,7 +139,7 @@ export function LinkChannelDialog({ channel, channels, host, onLink, onClose }: 
 	const [primary, setPrimary] = useState<PlatformType>(host);
 	const dialogRef = useRef<HTMLFormElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
-	useDismiss(dialogRef, onClose, false);
+	useDismiss(dialogRef, onClose);
 
 	const results = searchLinkCandidates(channels, target, query).slice(0, MAX_RESULTS);
 	const chosen = selected && results.includes(selected) ? selected : null;

@@ -22,7 +22,7 @@ export type LinkedChannels = {
 	primary: PlatformType;
 };
 
-export type ChannelMenuState = { channel: SidebarChannel; x: number; y: number };
+export type ChannelMenuState = { channel: SidebarChannel; anchor: Element; x: number; y: number };
 
 export type ChannelContextMenuProps = ChannelMenuState & {
 	host: PlatformType;

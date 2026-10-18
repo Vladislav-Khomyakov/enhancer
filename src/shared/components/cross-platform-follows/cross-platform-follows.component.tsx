@@ -228,7 +228,7 @@ export function CrossPlatformFollowsComponent({
 	};
 
 	const openMenu = (event: MouseEvent, channel: SidebarChannel) =>
-		setMenu({ channel, x: event.clientX, y: event.clientY });
+		setMenu({ channel, anchor: event.currentTarget as Element, x: event.clientX, y: event.clientY });
 
 	return (
 		<Container ref={containerRef} $host={hostPlatform} $compact={compact}>
