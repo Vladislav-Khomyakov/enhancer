@@ -22,6 +22,7 @@ export default class EmoteBarModule extends TwitchModule {
 		"img.ffz-emote",
 		"img.bttv-emote-image",
 	].join(", ");
+	private static readonly INPUT_WRAPPER_SELECTOR = ".chat-input-container__input-wrapper";
 	private static readonly EXTRACT_RETRIES = 3;
 	private static readonly EXTRACT_RETRY_DELAY = 400;
 	private static readonly CATALOG_DELAY = 10_000;
@@ -76,10 +77,11 @@ export default class EmoteBarModule extends TwitchModule {
 		const channelId = this.twitchUtils().getChatController()?.props.channelID;
 		if (channelId) this.setChannel(channelId);
 		for (const element of elements) {
-			if (!element.parentElement) continue;
+			const anchor = element.closest(EmoteBarModule.INPUT_WRAPPER_SELECTOR) ?? element;
+			if (!anchor.parentElement) continue;
 			const wrapper = document.createElement("div");
 			wrapper.className = this.getId();
-			element.parentElement.insertBefore(wrapper, element);
+			anchor.parentElement.insertBefore(wrapper, anchor);
 			render(
 				<EmoteBarComponent
 					entries={this.entries}
