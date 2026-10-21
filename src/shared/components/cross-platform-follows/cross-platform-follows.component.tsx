@@ -1,6 +1,5 @@
 import { MarqueeTextComponent } from "$shared/components/marquee-text/marquee-text.component.tsx";
 import {
-	channelThumbnailUrl,
 	formatAgo,
 	formatViewers,
 	getFollowsComparator,
@@ -11,13 +10,11 @@ import {
 	PLATFORM_NAMES,
 	PLATFORM_URLS,
 	PlatformIcon,
-	PlatformLabel,
 } from "$shared/components/cross-platform-follows/platform.shared.tsx";
 import { filterFollowsByPlatform, FOLLOWS_PLATFORM_FILTERS } from "$shared/utils/follows-filter.utils.ts";
 import { SortMenuComponent } from "$shared/components/sort-menu/sort-menu.component.tsx";
-import { StreamPreviewComponent } from "$shared/components/stream-preview/stream-preview.component.tsx";
 import { TooltipComponent } from "$shared/components/tooltip/tooltip.component.tsx";
-import { getPlaylistFetcher } from "$shared/utils/playlist-proxy.utils.ts";
+import { ChannelTooltipContent } from "$shared/components/cross-platform-follows/channel-tooltip.component.tsx";
 import { FLIP_KEY_ATTRIBUTE, useBecameTrue, useFlipAnimation } from "$shared/utils/flip-animation.utils.ts";
 import { FOLLOWS_SORT_LABELS } from "$shared/utils/follows-sort.utils.ts";
 import { getFollowEntryKey, mergeLinkedChannels } from "$shared/utils/follows-links.utils.ts";
@@ -425,8 +422,6 @@ function ChannelRow({
 	resolvePreviewUrl,
 }: SidebarChannelRowProps) {
 	const [hovered, setHovered] = useState(false);
-	const [previewPlaying, setPreviewPlaying] = useState(false);
-	const [previewFailed, setPreviewFailed] = useState(false);
 	const wentLive = useBecameTrue(channel.live);
 	const url = PLATFORM_URLS[channel.platform](channel.login);
 	const subtitle = channel.live
@@ -434,39 +429,7 @@ function ChannelRow({
 		: channel.lastLiveAt
 			? `Live ${formatAgo(channel.lastLiveAt, now)}`
 			: "Offline";
-	const thumbnail = channel.live ? channelThumbnailUrl(channel.platform, channel, now) : null;
-
-	const tooltip = (
-		<TooltipContent>
-			{channel.live && (
-				<TooltipPreview>
-					{thumbnail && <img src={thumbnail} alt="" />}
-					<StreamPreviewComponent
-						platform={channel.platform}
-						login={channel.login}
-						resolveUrl={resolvePreviewUrl}
-						onPlaying={() => setPreviewPlaying(true)}
-						onFailed={() => setPreviewFailed(true)}
-						playlistFetcher={getPlaylistFetcher(channel.platform)}
-					/>
-					{!previewPlaying && !previewFailed && <TooltipPreviewLoader />}
-				</TooltipPreview>
-			)}
-			<TooltipHeading>
-				<strong>{channel.displayName}</strong>
-				<PlatformLabel platform={channel.platform} />
-			</TooltipHeading>
-			{channel.live && channel.title && <TooltipTitle>{channel.title}</TooltipTitle>}
-			{channel.live ? (
-				<TooltipMeta>
-					<span>{channel.category ?? "Live"}</span>
-					<TooltipViewers>{formatViewers(channel.viewers)} viewers</TooltipViewers>
-				</TooltipMeta>
-			) : (
-				<TooltipMeta>{subtitle}</TooltipMeta>
-			)}
-		</TooltipContent>
-	);
+	const tooltip = <ChannelTooltipContent channel={channel} now={now} resolvePreviewUrl={resolvePreviewUrl} />;
 
 	const handleClick = (event: MouseEvent) => {
 		if (channel.platform !== host || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
@@ -491,11 +454,7 @@ function ChannelRow({
 				onContextMenu(event, channel);
 			}}
 			onMouseEnter={() => setHovered(true)}
-			onMouseLeave={() => {
-				setHovered(false);
-				setPreviewPlaying(false);
-				setPreviewFailed(false);
-			}}
+			onMouseLeave={() => setHovered(false)}
 			{...{ [FLIP_KEY_ATTRIBUTE]: getFollowEntryKey(channel) }}
 			$host={host}
 			$compact={compact}
@@ -867,62 +826,6 @@ const ToggleButton = styled.button<HostProps & { $end?: boolean }>`
 	}
 `;
 
-const TooltipContent = styled.div`
-	display: flex;
-	flex-direction: column;
-	gap: 3px;
-	max-width: 260px;
-	white-space: normal;
-`;
-
-const TooltipHeading = styled.div`
-	display: flex;
-	align-items: center;
-	gap: 8px;
-
-	strong {
-		min-width: 0;
-		overflow: hidden;
-		color: #fff;
-		font-size: 14px;
-		font-weight: 700;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-`;
-
-const TooltipTitle = styled.span`
-	display: -webkit-box;
-	overflow: hidden;
-	color: #dedee3;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-`;
-
-const TooltipMeta = styled.span`
-	display: flex;
-	flex-wrap: wrap;
-	align-items: center;
-	gap: 6px;
-	color: #adadb8;
-	font-size: 12px;
-`;
-
-const TooltipViewers = styled.span`
-	display: inline-flex;
-	align-items: center;
-	gap: 5px;
-	color: #dedee3;
-
-	&::before {
-		content: "";
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: #eb0400;
-	}
-`;
-
 const PlatformDot = styled.span<HostProps & { $platform: PlatformType; $linked: boolean }>`
 	position: absolute;
 	right: -3px;
@@ -973,38 +876,4 @@ const twitchLiveFlash = keyframes`
 const kickLiveFlash = keyframes`
 	0% { background: rgba(83, 252, 24, 0.25); }
 	100% { background: transparent; }
-`;
-
-const previewSpin = keyframes`
-	to { transform: rotate(360deg); }
-`;
-
-const TooltipPreview = styled.div`
-	position: relative;
-	width: 260px;
-	aspect-ratio: 16 / 9;
-	margin-bottom: 6px;
-	overflow: hidden;
-	border-radius: 6px;
-	background: #161616;
-
-	img {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-`;
-
-const TooltipPreviewLoader = styled.span`
-	position: absolute;
-	top: calc(50% - 11px);
-	left: calc(50% - 11px);
-	width: 22px;
-	height: 22px;
-	border: 3px solid rgba(255, 255, 255, 0.25);
-	border-top-color: white;
-	border-radius: 50%;
-	animation: ${previewSpin} 0.8s linear infinite;
 `;
