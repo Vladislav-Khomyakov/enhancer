@@ -14,6 +14,7 @@ import {
 	PlatformLabel,
 } from "$shared/components/cross-platform-follows/platform.shared.tsx";
 import { filterFollowsByPlatform, FOLLOWS_PLATFORM_FILTERS } from "$shared/utils/follows-filter.utils.ts";
+import { filterFollowsBySearch } from "$shared/utils/follows-search.utils.ts";
 import { SortMenuComponent } from "$shared/components/sort-menu/sort-menu.component.tsx";
 import { StreamPreviewComponent } from "$shared/components/stream-preview/stream-preview.component.tsx";
 import { TooltipComponent } from "$shared/components/tooltip/tooltip.component.tsx";
@@ -70,9 +71,13 @@ export function CrossPlatformFollowsComponent({
 	const [sort, setSort] = useState<FollowsSortOrder>(savedSort);
 	const [platformFilter, setPlatformFilter] = useState<FollowsPlatformFilter>(savedPlatformFilter);
 	const [compact, setCompact] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [query, setQuery] = useState("");
 	const [now, setNow] = useState(() => Date.now());
 	const containerRef = useRef<HTMLDivElement>(null);
 	const listRef = useRef<HTMLDivElement>(null);
+	const searchInputRef = useRef<HTMLInputElement>(null);
+	const searchButtonRef = useRef<HTMLButtonElement>(null);
 	const sourcePlatform: PlatformType = hostPlatform === "twitch" ? "kick" : "twitch";
 
 	useEffect(() => {
@@ -188,15 +193,46 @@ export function CrossPlatformFollowsComponent({
 		onPlatformFilterChange(option);
 	};
 
-	const filtered = useMemo(() => filterFollowsByPlatform(channels, platformFilter), [channels, platformFilter]);
+	const closeSearch = () => {
+		setSearchOpen(false);
+		setQuery("");
+	};
+
+	const toggleSearch = () => {
+		if (searchOpen) closeSearch();
+		else setSearchOpen(true);
+	};
+
+	const handleSearchKeyDown = (event: KeyboardEvent) => {
+		event.stopPropagation();
+		if (event.key !== "Escape") return;
+		event.preventDefault();
+		closeSearch();
+		searchButtonRef.current?.focus();
+	};
+
+	useEffect(() => {
+		if (searchOpen) searchInputRef.current?.focus();
+	}, [searchOpen]);
+
+	const searching = searchOpen && !compact && query.trim() !== "";
+	const platformFiltered = useMemo(() => filterFollowsByPlatform(channels, platformFilter), [channels, platformFilter]);
+	const filtered = useMemo(
+		() => (searching ? filterFollowsBySearch(platformFiltered, query) : platformFiltered),
+		[platformFiltered, searching, query],
+	);
 	const pinnedCount = filtered.filter((channel) => channel.pinned).length;
 	const visible = compact
 		? channels.filter((channel) => channel.live)
-		: filtered.slice(0, Math.max(COLLAPSED_COUNT * pages, pinnedCount));
+		: searching
+			? filtered
+			: filtered.slice(0, Math.max(COLLAPSED_COUNT * pages, pinnedCount));
 	const emptyFilterText =
-		platformFilter !== "all" && filtered.length === 0 && snapshots[platformFilter]?.synced
+		platformFilter !== "all" && platformFiltered.length === 0 && snapshots[platformFilter]?.synced
 			? `You don't follow anyone on ${PLATFORM_NAMES[platformFilter]} yet.`
-			: null;
+			: searching && filtered.length === 0
+				? `No followed channels match "${query.trim()}".`
+				: null;
 	useFlipAnimation(
 		listRef,
 		visible.map((channel) => getFollowEntryKey(channel)),
@@ -327,6 +363,30 @@ export function CrossPlatformFollowsComponent({
 					</TooltipComponent>
 				)}
 				{!compact && unsorted.length > 0 && (
+					<TooltipComponent content={searchOpen ? "Close search" : "Search channels"} position="top">
+						<HeaderButton
+							ref={searchButtonRef}
+							type="button"
+							aria-label={searchOpen ? "Close search" : "Search followed channels"}
+							aria-expanded={searchOpen}
+							data-open={searchOpen || undefined}
+							$host={hostPlatform}
+							onClick={toggleSearch}
+						>
+							<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+								<path
+									d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 2-4.35-4.35"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</HeaderButton>
+					</TooltipComponent>
+				)}
+				{!compact && unsorted.length > 0 && (
 					<TooltipComponent content={`Sort: ${FOLLOWS_SORT_LABELS[activeSort]}`} position="right">
 						<SortControl $host={hostPlatform}>
 							<SortMenuComponent
@@ -353,6 +413,24 @@ export function CrossPlatformFollowsComponent({
 					</TooltipComponent>
 				)}
 			</Header>
+			{!compact && searchOpen && unsorted.length > 0 && (
+				<SearchRow $host={hostPlatform}>
+					<SearchInput
+						ref={searchInputRef}
+						type="search"
+						value={query}
+						placeholder="Search channels"
+						aria-label="Search followed channels"
+						autoComplete="off"
+						spellcheck={false}
+						$host={hostPlatform}
+						onInput={(event: Event) => setQuery((event.currentTarget as HTMLInputElement).value)}
+						onKeyDown={handleSearchKeyDown}
+						onKeyUp={(event: KeyboardEvent) => event.stopPropagation()}
+						onKeyPress={(event: KeyboardEvent) => event.stopPropagation()}
+					/>
+				</SearchRow>
+			)}
 			{!compact &&
 				notices.map((notice) => (
 					<Notice key={notice} $host={hostPlatform}>
@@ -375,7 +453,7 @@ export function CrossPlatformFollowsComponent({
 					/>
 				))}
 			</List>
-			{!compact && (filtered.length > visible.length || pages > 1) && (
+			{!compact && !searching && (filtered.length > visible.length || pages > 1) && (
 				<ToggleRow>
 					{filtered.length > visible.length && (
 						<ToggleButton $host={hostPlatform} onClick={() => setPages(pages + 1)}>
@@ -636,6 +714,74 @@ const SortControl = styled.span<HostProps>`
 		background: ${({ $host }) =>
 			$host === "kick" ? "rgba(255, 255, 255, 0.08)" : "var(--color-background-button-text-hover)"};
 	}
+`;
+
+const HeaderButton = styled.button<HostProps>`
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	background: none;
+	font: inherit;
+	cursor: pointer;
+	border-radius: ${({ $host }) => ($host === "kick" ? "6px" : "var(--border-radius-medium)")};
+	color: ${({ $host }) => ($host === "kick" ? "rgba(255, 255, 255, 0.6)" : "var(--color-text-alt-2)")};
+
+	&:hover,
+	&:focus-visible,
+	&[data-open] {
+		color: ${({ $host }) => ($host === "kick" ? "#fff" : "var(--color-text-base)")};
+		background: ${({ $host }) =>
+			$host === "kick" ? "rgba(255, 255, 255, 0.08)" : "var(--color-background-button-text-hover)"};
+	}
+`;
+
+const SearchRow = styled.div<HostProps>`
+	display: flex;
+	padding: ${({ $host }) => ($host === "kick" ? "0 0 0 6px" : "0 8px 6px")};
+`;
+
+const SearchInput = styled.input<HostProps>`
+	flex: 1;
+	min-width: 0;
+	height: 30px;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0 10px;
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+
+	${({ $host }) =>
+		$host === "kick"
+			? css`
+					color: #fff;
+					background: rgba(255, 255, 255, 0.06);
+					border: 1px solid rgba(255, 255, 255, 0.12);
+					border-radius: 6px;
+					&::placeholder {
+						color: rgba(255, 255, 255, 0.5);
+					}
+					&:focus {
+						border-color: #53fc18;
+					}
+				`
+			: css`
+					color: var(--color-text-input);
+					background: var(--color-background-input);
+					border: 1px solid var(--color-border-input);
+					border-radius: var(--input-border-radius-default, var(--border-radius-medium));
+					&::placeholder {
+						color: var(--color-text-input-placeholder);
+					}
+					&:focus {
+						border-color: var(--color-border-input-focus);
+					}
+				`}
 `;
 
 const FilterBar = styled.div`
@@ -933,7 +1079,7 @@ const PlatformDot = styled.span<HostProps & { $platform: PlatformType; $linked: 
 	border-radius: 50%;
 	background: ${({ $platform, $linked }) =>
 		$linked
-			? `linear-gradient(90deg, ${PLATFORM_COLORS.twitch} 50%, ${PLATFORM_COLORS.kick} 50%)`
+			? `linear-gradient(135deg, ${PLATFORM_COLORS.twitch} 50%, ${PLATFORM_COLORS.kick} 50%)`
 			: PLATFORM_COLORS[$platform]};
 	border: 2px solid ${({ $host }) => ($host === "kick" ? "#090b0f" : "var(--color-background-base)")};
 `;
