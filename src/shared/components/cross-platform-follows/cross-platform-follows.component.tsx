@@ -21,6 +21,7 @@ import { getPlaylistFetcher } from "$shared/utils/playlist-proxy.utils.ts";
 import { FLIP_KEY_ATTRIBUTE, useBecameTrue, useFlipAnimation } from "$shared/utils/flip-animation.utils.ts";
 import { FOLLOWS_SORT_LABELS } from "$shared/utils/follows-sort.utils.ts";
 import { getFollowEntryKey, mergeLinkedChannels } from "$shared/utils/follows-links.utils.ts";
+import { getFollowsStatusState } from "$shared/utils/follows-freshness.utils.ts";
 import {
 	ChannelContextMenu,
 	LinkChannelDialog,
@@ -42,6 +43,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks"
 import styled, { css, keyframes } from "styled-components";
 
 const REFRESH_INTERVAL_MS = 60_000;
+const WAKE_CHECK_MS = 5_000;
+const WAKE_GAP_MS = 20_000;
+const RESUME_EVENTS = ["online", "focus", "pageshow"] as const;
 const COLLAPSED_COUNT = 10;
 const COMPACT_WIDTH = 120;
 const PLATFORM_SITES: Record<PlatformType, string> = { twitch: "twitch.tv", kick: "kick.com" };
@@ -94,16 +98,26 @@ export function CrossPlatformFollowsComponent({
 			setSnapshots((previous) => ({ ...previous, [payload.platform]: payload }));
 			setNow(Date.now());
 		};
-		const handleVisibility = () => void load();
+		const handleResume = () => void load();
+		let lastTick = Date.now();
+		const detectWake = () => {
+			const tick = Date.now();
+			if (tick - lastTick > WAKE_GAP_MS) void load();
+			lastTick = tick;
+		};
 		workerService.onBroadcast("cross-platform-follows-updated", handleBroadcast);
-		document.addEventListener("visibilitychange", handleVisibility);
+		document.addEventListener("visibilitychange", handleResume);
+		for (const event of RESUME_EVENTS) window.addEventListener(event, handleResume);
 		const interval = window.setInterval(() => void load(), REFRESH_INTERVAL_MS);
+		const wakeInterval = window.setInterval(detectWake, WAKE_CHECK_MS);
 		void load();
 
 		return () => {
 			disposed = true;
 			window.clearInterval(interval);
-			document.removeEventListener("visibilitychange", handleVisibility);
+			window.clearInterval(wakeInterval);
+			document.removeEventListener("visibilitychange", handleResume);
+			for (const event of RESUME_EVENTS) window.removeEventListener(event, handleResume);
 			workerService.offBroadcast("cross-platform-follows-updated", handleBroadcast);
 		};
 	}, [workerService]);
@@ -136,15 +150,25 @@ export function CrossPlatformFollowsComponent({
 	const hostSnapshot = snapshots[hostPlatform];
 	const sourceSnapshot = snapshots[sourcePlatform];
 
+	const hostStatus = getFollowsStatusState(hostSnapshot, now);
+	const sourceStatus = getFollowsStatusState(sourceSnapshot, now);
 	const unsorted = useMemo(() => {
 		const list: SidebarChannel[] = [];
-		for (const snapshot of [hostSnapshot, sourceSnapshot]) {
+		for (const [snapshot, status] of [
+			[hostSnapshot, hostStatus],
+			[sourceSnapshot, sourceStatus],
+		] as const) {
 			for (const channel of snapshot?.channels ?? []) {
-				list.push({ ...channel, pinned: pinsEnabled && channel.pinned, platform: snapshot!.platform });
+				list.push({
+					...channel,
+					pinned: pinsEnabled && channel.pinned,
+					platform: snapshot!.platform,
+					stale: status !== "fresh",
+				});
 			}
 		}
 		return mergeLinkedChannels(list, links);
-	}, [hostSnapshot, sourceSnapshot, pinsEnabled, links]);
+	}, [hostSnapshot, sourceSnapshot, hostStatus, sourceStatus, pinsEnabled, links]);
 	const sortOptions = getFollowsSortOptions(unsorted);
 	const activeSort = sortOptions.includes(sort) ? sort : "viewers-desc";
 	const channels = useMemo(
@@ -188,8 +212,11 @@ export function CrossPlatformFollowsComponent({
 		notices.push("Open kick.com while logged in to refresh live status.");
 	}
 
-	const stale = [hostSnapshot, sourceSnapshot].some((snapshot) => getVisibleProblem(snapshot));
-	const staleText = stale ? "Couldn't refresh live status. Showing the last known state." : null;
+	const failed =
+		[hostStatus, sourceStatus].includes("failed") ||
+		[hostSnapshot, sourceSnapshot].some((snapshot) => getVisibleProblem(snapshot));
+	const updating = !failed && [hostStatus, sourceStatus].includes("updating");
+	const staleText = failed ? "Couldn't refresh live status. Showing the last known state." : null;
 
 	const resolvePreviewUrl = useCallback(
 		async (platform: PlatformType, login: string) =>
@@ -292,6 +319,11 @@ export function CrossPlatformFollowsComponent({
 				{!compact && staleText && (
 					<TooltipComponent content={staleText} position="top">
 						<StaleBadge>!</StaleBadge>
+					</TooltipComponent>
+				)}
+				{!compact && updating && (
+					<TooltipComponent content="Updating live status…" position="top">
+						<UpdatingSpinner role="status" aria-label="Updating live status" $host={hostPlatform} />
 					</TooltipComponent>
 				)}
 				{!compact && unsorted.length > 0 && (
@@ -472,7 +504,7 @@ function ChannelRow({
 		>
 			<Avatar $host={host} $live={channel.live}>
 				{channel.avatarUrl ? <img src={channel.avatarUrl} alt="" loading="lazy" /> : <AvatarFallback />}
-				{compact && channel.live && <CompactLiveDot $host={host} />}
+				{compact && channel.live && <CompactLiveDot $host={host} $stale={!!channel.stale} />}
 				<PlatformDot
 					$host={host}
 					$platform={channel.platform}
@@ -501,8 +533,8 @@ function ChannelRow({
 						</Subtitle>
 					</Meta>
 					{channel.live && (
-						<Viewers $host={host}>
-							<LiveDot $host={host} />
+						<Viewers $host={host} $stale={!!channel.stale}>
+							<LiveDot $host={host} $stale={!!channel.stale} />
 							{formatViewers(channel.viewers)}
 						</Viewers>
 					)}
@@ -771,22 +803,41 @@ const Subtitle = styled.span<HostProps>`
 	color: ${({ $host }) => ($host === "kick" ? "rgba(255, 255, 255, 0.6)" : "var(--color-text-alt-2)")};
 `;
 
-const Viewers = styled.span<HostProps>`
+type StaleProps = { $stale: boolean };
+
+const Viewers = styled.span<HostProps & StaleProps>`
 	display: flex;
 	align-items: center;
 	gap: 5px;
 	flex-shrink: 0;
 	align-self: flex-start;
+	opacity: ${({ $stale }) => ($stale ? 0.5 : 1)};
 	font-size: ${({ $host }) => ($host === "kick" ? "14px" : "13px")};
 	font-weight: ${({ $host }) => ($host === "kick" ? 600 : 400)};
 	color: ${({ $host }) => ($host === "kick" ? "#fff" : "var(--color-text-alt)")};
 `;
 
-const LiveDot = styled.span<HostProps>`
+const LiveDot = styled.span<HostProps & StaleProps>`
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	background: ${({ $host }) => ($host === "kick" ? "#53fc18" : "#eb0400")};
+	background: ${({ $host, $stale }) => ($stale ? "#8a8a8a" : $host === "kick" ? "#53fc18" : "#eb0400")};
+`;
+
+const updatingSpin = keyframes`
+	to { transform: rotate(360deg); }
+`;
+
+const UpdatingSpinner = styled.span<HostProps>`
+	display: block;
+	flex-shrink: 0;
+	box-sizing: border-box;
+	width: 14px;
+	height: 14px;
+	border: 2px solid ${({ $host }) => ($host === "kick" ? "rgba(255, 255, 255, 0.2)" : "var(--color-border-base)")};
+	border-top-color: ${({ $host }) => ($host === "kick" ? "#53fc18" : "#9147ff")};
+	border-radius: 50%;
+	animation: ${updatingSpin} 0.8s linear infinite;
 `;
 
 const CompactLiveDot = styled(LiveDot)`
