@@ -72,6 +72,7 @@ export function CrossPlatformFollowsComponent({
 	const [platformFilter, setPlatformFilter] = useState<FollowsPlatformFilter>(savedPlatformFilter);
 	const [compact, setCompact] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
+	const [searchMinHeight, setSearchMinHeight] = useState(0);
 	const [query, setQuery] = useState("");
 	const [now, setNow] = useState(() => Date.now());
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -199,8 +200,9 @@ export function CrossPlatformFollowsComponent({
 	};
 
 	const toggleSearch = () => {
-		if (searchOpen) closeSearch();
-		else setSearchOpen(true);
+		if (searchOpen) return closeSearch();
+		setSearchMinHeight(containerRef.current?.offsetHeight ?? 0);
+		setSearchOpen(true);
 	};
 
 	const handleSearchKeyDown = (event: KeyboardEvent) => {
@@ -314,7 +316,12 @@ export function CrossPlatformFollowsComponent({
 		setMenu({ channel, anchor: event.currentTarget as Element, x: event.clientX, y: event.clientY });
 
 	return (
-		<Container ref={containerRef} $host={hostPlatform} $compact={compact}>
+		<Container
+			ref={containerRef}
+			$host={hostPlatform}
+			$compact={compact}
+			style={searchOpen && !compact ? { minHeight: `${searchMinHeight}px` } : undefined}
+		>
 			<Header $host={hostPlatform} $compact={compact}>
 				{compact && hostPlatform === "kick" && (
 					<svg width="16" height="16" viewBox="0 0 20 20" aria-label={title ?? "Followed Channels"}>
@@ -349,6 +356,28 @@ export function CrossPlatformFollowsComponent({
 								</TooltipComponent>
 							);
 						})}
+						<TooltipComponent content={searchOpen ? "Close search" : "Search channels"} position="top">
+							<HeaderButton
+								ref={searchButtonRef}
+								type="button"
+								aria-label={searchOpen ? "Close search" : "Search followed channels"}
+								aria-expanded={searchOpen}
+								data-open={searchOpen || undefined}
+								$host={hostPlatform}
+								onClick={toggleSearch}
+							>
+								<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+									<path
+										d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 2-4.35-4.35"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</HeaderButton>
+						</TooltipComponent>
 					</FilterBar>
 				)}
 				{!compact && unsorted.length === 0 && <HeaderTitle>{title ?? "Followed Channels"}</HeaderTitle>}
@@ -360,30 +389,6 @@ export function CrossPlatformFollowsComponent({
 				{!compact && updating && (
 					<TooltipComponent content="Updating live status…" position="top">
 						<UpdatingSpinner role="status" aria-label="Updating live status" $host={hostPlatform} />
-					</TooltipComponent>
-				)}
-				{!compact && unsorted.length > 0 && (
-					<TooltipComponent content={searchOpen ? "Close search" : "Search channels"} position="top">
-						<HeaderButton
-							ref={searchButtonRef}
-							type="button"
-							aria-label={searchOpen ? "Close search" : "Search followed channels"}
-							aria-expanded={searchOpen}
-							data-open={searchOpen || undefined}
-							$host={hostPlatform}
-							onClick={toggleSearch}
-						>
-							<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-								<path
-									d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 2-4.35-4.35"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								/>
-							</svg>
-						</HeaderButton>
 					</TooltipComponent>
 				)}
 				{!compact && unsorted.length > 0 && (
@@ -588,7 +593,16 @@ function ChannelRow({
 					$platform={channel.platform}
 					$linked={!!channel.linked}
 					title={channel.linked ? "Linked Twitch and Kick channels" : PLATFORM_NAMES[channel.platform]}
-				/>
+				>
+					{channel.linked && (
+						<svg viewBox="0 0 2 2" aria-hidden="true">
+							<g transform="rotate(-45 1 1)">
+								<path d="M0 1a1 1 0 0 1 2 0z" fill={PLATFORM_COLORS.twitch} />
+								<path d="M0 1a1 1 0 0 0 2 0z" fill={PLATFORM_COLORS.kick} />
+							</g>
+						</svg>
+					)}
+				</PlatformDot>
 				{!compact && onTogglePin && (
 					<PinButton
 						role="button"
@@ -725,7 +739,7 @@ const HeaderButton = styled.button<HostProps>`
 	height: 28px;
 	padding: 0;
 	border: none;
-	background: none;
+	background: ${({ $host }) => ($host === "kick" ? "rgba(255, 255, 255, 0.04)" : "none")};
 	font: inherit;
 	cursor: pointer;
 	border-radius: ${({ $host }) => ($host === "kick" ? "6px" : "var(--border-radius-medium)")};
@@ -1077,11 +1091,14 @@ const PlatformDot = styled.span<HostProps & { $platform: PlatformType; $linked: 
 	width: 12px;
 	height: 12px;
 	border-radius: 50%;
-	background: ${({ $platform, $linked }) =>
-		$linked
-			? `linear-gradient(135deg, ${PLATFORM_COLORS.twitch} 50%, ${PLATFORM_COLORS.kick} 50%)`
-			: PLATFORM_COLORS[$platform]};
+	background: ${({ $platform, $linked }) => ($linked ? "none" : PLATFORM_COLORS[$platform])};
 	border: 2px solid ${({ $host }) => ($host === "kick" ? "#090b0f" : "var(--color-background-base)")};
+
+	svg {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
 `;
 
 const PIN_COLORS: Record<PlatformType, { icon: string; background: string; hover: string }> = {
