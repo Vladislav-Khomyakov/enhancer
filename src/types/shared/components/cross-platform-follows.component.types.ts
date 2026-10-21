@@ -49,6 +49,18 @@ export type LinkChannelDialogProps = {
 	onClose: () => void;
 };
 
+export type ChannelTooltipContentProps = {
+	channel: SidebarChannel;
+	now: number;
+	resolvePreviewUrl: (platform: PlatformType, login: string) => Promise<string | null>;
+};
+
+export type SidebarChannelHoverProps = {
+	rowSelector: string;
+	readChannel: (row: HTMLElement) => SidebarChannel | null;
+	resolvePreviewUrl: (platform: PlatformType, login: string) => Promise<string | null>;
+};
+
 export type SidebarChannelRowProps = {
 	channel: SidebarChannel;
 	host: PlatformType;
