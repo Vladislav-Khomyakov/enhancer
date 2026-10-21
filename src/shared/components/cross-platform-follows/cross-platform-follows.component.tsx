@@ -829,6 +829,7 @@ const updatingSpin = keyframes`
 `;
 
 const UpdatingSpinner = styled.span<HostProps>`
+	display: block;
 	flex-shrink: 0;
 	box-sizing: border-box;
 	width: 14px;
