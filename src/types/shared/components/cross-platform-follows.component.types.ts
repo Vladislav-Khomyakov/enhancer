@@ -18,7 +18,11 @@ export type CrossPlatformFollowsComponentProps = {
 	onNavigate: (url: string) => void;
 };
 
-export type SidebarChannel = CrossPlatformChannel & { platform: PlatformType; linked?: LinkedChannels };
+export type SidebarChannel = CrossPlatformChannel & {
+	platform: PlatformType;
+	linked?: LinkedChannels;
+	stale?: boolean;
+};
 
 export type LinkedChannels = {
 	channels: Record<PlatformType, SidebarChannel>;
