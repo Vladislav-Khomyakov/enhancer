@@ -173,6 +173,10 @@ export default class WorkerBridge {
 	private setupBroadcastReceiving() {
 		chrome.runtime.onMessage.addListener((message: WorkerBroadcast) => {
 			if (!this.bridgeElement || !message.type) return;
+			if (message.type === "api-environment-changed") {
+				if (window.top === window) location.reload();
+				return;
+			}
 			const broadcastEvent = new CustomEvent<string>("enhancer-broadcast", {
 				detail: JSON.stringify(message),
 			});

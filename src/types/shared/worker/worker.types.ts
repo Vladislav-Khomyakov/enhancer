@@ -1,4 +1,5 @@
 import type { EnhancerStreamerWatchTimeData } from "$types/apis/enhancer.apis.ts";
+import type { EnhancerApiEnvironment } from "$types/shared/enhancer-environment.types.ts";
 import type { LogEntry } from "$types/shared/logger.types.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
 import type { GlobalSettings } from "$types/shared/settings/global-settings.types.ts";
@@ -21,6 +22,22 @@ import type {
 	InitializeEnhancerApiPayload,
 	JoinEnhancerChannelPayload,
 } from "$types/shared/worker/enhancer-api-worker.types.ts";
+import type {
+	EnhancerAccountBroadcastPayload,
+	EnhancerAccountCard,
+	EnhancerAccountState,
+	GetEnhancerAccountCardPayload,
+	GetEnhancerBadgesResponse,
+	GetEnhancerProfileResponse,
+	LoginEnhancerAccountResponse,
+	LogoutEnhancerAccountResponse,
+	SaveEnhancerBadgeSlotPayload,
+	SaveEnhancerBadgeSlotResponse,
+	ClearEnhancerNicknamePayload,
+	GetEnhancerBillingResponse,
+	SaveEnhancerChatStylePayload,
+	SubmitEnhancerNicknamePayload,
+} from "$types/shared/worker/enhancer-account-worker.types.ts";
 import type {
 	ChannelPinsPayload,
 	GetChannelPinsPayload,
@@ -187,6 +204,50 @@ export interface WorkerApiActions {
 		payload: DisconnectEnhancerApiPayload;
 		response: { success: true };
 	};
+	getEnhancerAccount: {
+		payload: never;
+		response: EnhancerAccountState;
+	};
+	getEnhancerAccountCard: {
+		payload: GetEnhancerAccountCardPayload;
+		response: EnhancerAccountCard;
+	};
+	loginEnhancerAccount: {
+		payload: never;
+		response: LoginEnhancerAccountResponse;
+	};
+	logoutEnhancerAccount: {
+		payload: never;
+		response: LogoutEnhancerAccountResponse;
+	};
+	getEnhancerProfile: {
+		payload: never;
+		response: GetEnhancerProfileResponse;
+	};
+	getEnhancerBadges: {
+		payload: never;
+		response: GetEnhancerBadgesResponse;
+	};
+	saveEnhancerBadgeSlot: {
+		payload: SaveEnhancerBadgeSlotPayload;
+		response: SaveEnhancerBadgeSlotResponse;
+	};
+	getEnhancerBilling: {
+		payload: never;
+		response: GetEnhancerBillingResponse;
+	};
+	saveEnhancerChatStyle: {
+		payload: SaveEnhancerChatStylePayload;
+		response: GetEnhancerBillingResponse;
+	};
+	submitEnhancerNickname: {
+		payload: SubmitEnhancerNicknamePayload;
+		response: GetEnhancerBillingResponse;
+	};
+	clearEnhancerNickname: {
+		payload: ClearEnhancerNicknamePayload;
+		response: GetEnhancerBillingResponse;
+	};
 	syncFollows: {
 		payload: SyncFollowsPayload;
 		response: { success: true };
@@ -248,4 +309,6 @@ export type WorkerBroadcast =
 	| { type: "enhancer-api-patch"; payload: EnhancerApiPatchPayload }
 	| { type: "cross-platform-follows-updated"; payload: CrossPlatformFollowsSnapshot }
 	| { type: "channel-pins-updated"; payload: ChannelPinsPayload }
-	| { type: "channel-links-updated"; payload: ChannelLinksPayload };
+	| { type: "channel-links-updated"; payload: ChannelLinksPayload }
+	| { type: "enhancer-account-updated"; payload: EnhancerAccountBroadcastPayload }
+	| { type: "api-environment-changed"; payload: EnhancerApiEnvironment };

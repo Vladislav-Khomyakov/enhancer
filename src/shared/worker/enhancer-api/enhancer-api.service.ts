@@ -1,4 +1,5 @@
 import { encodeBase64, readSnapshotHeader, SNAPSHOT_FORMAT_VERSION } from "$shared/apis/enhancer-snapshot.ts";
+import { ENHANCER_ENDPOINTS } from "$shared/enhancer-environment.ts";
 import type { Logger } from "$shared/logger/logger.ts";
 import type { AggregateSnapshotDatabase } from "$shared/worker/enhancer-api/aggregate-snapshot.database.ts";
 import type {
@@ -14,6 +15,7 @@ import type {
 	EnhancerWebSocketMessage,
 	XayoWatchtimePeriod,
 } from "$types/apis/enhancer.apis.ts";
+import type { EnhancerEndpoints } from "$types/shared/enhancer-environment.types.ts";
 import type { PlatformType } from "$types/shared/platform.types.ts";
 import type {
 	AggregateAccountEntry,
@@ -28,8 +30,6 @@ import type {
 import type { WorkerBroadcast } from "$types/shared/worker/worker.types.ts";
 
 export class EnhancerApiService {
-	private static readonly HTTP_BASE_URL = "https://api.enhancer.at";
-	private static readonly WEBSOCKET_URL = "wss://api.enhancer.at/v1/ws";
 	private static readonly CONFIRMATION_TIMEOUT_MS = 5000;
 	private static readonly HEARTBEAT_INTERVAL_MS = 25_000;
 	private static readonly MAX_SEEN_CURSORS = 1000;
@@ -53,6 +53,7 @@ export class EnhancerApiService {
 		private readonly logger: Logger,
 		private readonly version = "unknown",
 		private readonly store?: AggregateSnapshotDatabase,
+		private endpoints: EnhancerEndpoints = ENHANCER_ENDPOINTS.production,
 	) {
 		chrome.tabs.onRemoved.addListener((tabId) => this.removeTabClients(tabId));
 	}
@@ -125,6 +126,21 @@ export class EnhancerApiService {
 
 	disconnect(_tabId: number, _frameId: number, clientId: string, _platform: PlatformType): void {
 		this.unregisterClient(clientId);
+	}
+
+	setEndpoints(endpoints: EnhancerEndpoints): void {
+		if (endpoints.api === this.endpoints.api && endpoints.websocket === this.endpoints.websocket) return;
+		this.logger.info("Switching Enhancer API", endpoints.api);
+		this.closeConnection();
+		for (const state of this.subscriptions.values()) {
+			state.active = false;
+			this.releaseSubscription(state);
+		}
+		this.clients.clear();
+		this.subscriptions.clear();
+		this.pendingSubscriptions.clear();
+		this.reconnectAttempt = 0;
+		this.endpoints = endpoints;
 	}
 
 	private rememberKnownHash(client: EnhancerApiClient, topic: EnhancerAggregateTopic, knownHash?: string): void {
@@ -297,7 +313,7 @@ export class EnhancerApiService {
 		}
 
 		this.connectionPromise = new Promise<void>((resolve, reject) => {
-			const socket = new WebSocket(`${EnhancerApiService.WEBSOCKET_URL}?v=${encodeURIComponent(this.version)}`);
+			const socket = new WebSocket(`${this.endpoints.websocket}?v=${encodeURIComponent(this.version)}`);
 			this.socket = socket;
 			let settled = false;
 			const timeout = setTimeout(() => {
@@ -505,7 +521,7 @@ export class EnhancerApiService {
 	}
 
 	private async fetchSnapshot(head: EnhancerAggregateHeadEvent): Promise<AggregateSnapshotFile> {
-		const response = await fetch(new URL(head.snapshot.path, EnhancerApiService.HTTP_BASE_URL));
+		const response = await fetch(new URL(head.snapshot.path, this.endpoints.api));
 		if (!response.ok) throw new Error(`Enhancer snapshot request failed with status ${response.status}`);
 		const bytes = new Uint8Array(await response.arrayBuffer());
 		const { header } = readSnapshotHeader(bytes);

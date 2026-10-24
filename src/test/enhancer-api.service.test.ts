@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { decodeBase64, EnhancerAggregateView } from "$shared/apis/enhancer-snapshot.ts";
+import { ENHANCER_ENDPOINTS } from "$shared/enhancer-environment.ts";
 import type { Logger } from "$shared/logger/logger.ts";
 import type { AggregateSnapshotDatabase } from "$shared/worker/enhancer-api/aggregate-snapshot.database.ts";
 import { EnhancerApiService } from "$shared/worker/enhancer-api/enhancer-api.service.ts";
@@ -78,6 +79,7 @@ interface FakeTopic {
 const topics = new Map<string, FakeTopic>();
 const missing = new Set<string>();
 const fetched: string[] = [];
+const fetchedOrigins: string[] = [];
 
 function serveTopic(topic: string, accounts: EnhancerAccount[], hash = `${topic}-hash`): FakeTopic {
 	const entry: FakeTopic = {
@@ -121,12 +123,14 @@ class FakeWebSocket extends EventTarget {
 	static instance: FakeWebSocket;
 	static instances = 0;
 	static commands: any[] = [];
+	static urls: string[] = [];
 	static aliases = new Map<string, string>();
 	static beforeHead: (socket: FakeWebSocket, topic: string) => void = () => {};
 	readonly readyState = FakeWebSocket.OPEN;
 
-	constructor(_url: string) {
+	constructor(url: string) {
 		super();
+		FakeWebSocket.urls.push(url);
 		FakeWebSocket.instance = this;
 		FakeWebSocket.instances++;
 		queueMicrotask(() => this.receive({ type: "connection.ready" }));
@@ -202,6 +206,7 @@ function setup() {
 		const url = new URL(input.toString());
 		const topic = decodeURIComponent(url.pathname.slice("/snapshot/".length));
 		fetched.push(topic);
+		fetchedOrigins.push(url.origin);
 		const entry = topics.get(topic);
 		return entry ? new Response(entry.bytes.slice()) : new Response(null, { status: 404 });
 	}) as typeof fetch;
@@ -219,11 +224,13 @@ afterEach(() => {
 	globalThis.WebSocket = originalWebSocket;
 	FakeWebSocket.instances = 0;
 	FakeWebSocket.commands = [];
+	FakeWebSocket.urls = [];
 	FakeWebSocket.aliases.clear();
 	FakeWebSocket.beforeHead = () => {};
 	topics.clear();
 	missing.clear();
 	fetched.length = 0;
+	fetchedOrigins.length = 0;
 });
 
 test("downloads one snapshot file for every tab and sends patches in order", async () => {
@@ -414,4 +421,21 @@ test("looks up snapshot accounts past 2^32, text ids, and overlay removals", () 
 	expect(view.findAccount("12")).toBeNull();
 	expect(view.findBadge("badge-1")).toBeNull();
 	expect(view.customFonts()).toEqual([]);
+});
+
+test("switching to the test API drops production state and reconnects to the test host", async () => {
+	setup();
+	serveTopic("global:TWITCH", [account("1")]);
+	const service = new EnhancerApiService(logger, "6.0.0");
+
+	await service.initialize(7, 0, "client-a", "twitch");
+	service.setEndpoints(ENHANCER_ENDPOINTS.test);
+	const seed = await service.initialize(7, 0, "client-b", "twitch");
+
+	expect(seed.bytes).toBeDefined();
+	expect(fetchedOrigins).toEqual(["https://api.enhancer.at", "https://test-api.enhancer.at"]);
+	expect(FakeWebSocket.urls).toEqual([
+		"wss://api.enhancer.at/v1/ws?v=6.0.0",
+		"wss://test-api.enhancer.at/v1/ws?v=6.0.0",
+	]);
 });

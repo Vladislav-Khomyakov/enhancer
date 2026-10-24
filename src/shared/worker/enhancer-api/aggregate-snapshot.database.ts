@@ -56,6 +56,13 @@ export class AggregateSnapshotDatabase extends Database {
 		});
 	}
 
+	async clear(): Promise<void> {
+		await this.write((meta, files) => {
+			meta.clear();
+			files.clear();
+		});
+	}
+
 	private async prune(): Promise<void> {
 		const channels: StoredAggregateMeta[] = [];
 		await this.forEachCursor<StoredAggregateMeta>(
