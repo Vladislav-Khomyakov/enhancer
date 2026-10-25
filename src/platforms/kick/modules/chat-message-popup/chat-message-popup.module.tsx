@@ -1,8 +1,8 @@
+import { EXTENSION_NAME } from "$shared/extension.constants.ts";
 import KickModule from "$kick/kick.module.ts";
-import TwitchModule from "$twitch/twitch.module.ts";
 import type { EnhancerMessageEvent } from "$types/apis/enhancer.apis.ts";
 import type { ChatMessagePopupEvent } from "$types/platforms/twitch/twitch.events.types.ts";
-import type { KickModuleConfig, TwitchModuleConfig } from "$types/shared/module/module.types.ts";
+import type { KickModuleConfig } from "$types/shared/module/module.types.ts";
 import { h, render } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import styled from "styled-components";
@@ -35,14 +35,17 @@ export default class ChatMessagePopupModule extends KickModule {
 				? message.data.text
 				: null;
 		if (!text?.trim()) return;
-		this.render({ title: "Enhancer", content: text, autoclose: text.length > 120 ? 30 : 10 });
+		this.render({ title: EXTENSION_NAME, content: text, autoclose: text.length > 120 ? 30 : 10 });
 	}
 
 	private render(message: ChatMessagePopupEvent) {
 		const contentElement = document.querySelector("#chatroom-footer");
 		if (contentElement) {
 			let wrapper = contentElement.querySelector(`.${this.getId()}`);
-			if (wrapper) wrapper.remove();
+			if (wrapper) {
+				render(null, wrapper);
+				wrapper.remove();
+			}
 
 			wrapper = document.createElement("div");
 			wrapper.classList.add(this.getId());
@@ -54,6 +57,7 @@ export default class ChatMessagePopupModule extends KickModule {
 					title={message.title}
 					autoclose={message.autoclose ?? 15}
 					onClose={() => {
+						render(null, wrapper);
 						wrapper.remove();
 						if (message.onClose) {
 							message.onClose();
@@ -68,78 +72,79 @@ export default class ChatMessagePopupModule extends KickModule {
 }
 
 const PopupWrapper = styled.div`
-  --main-color: #53fc18;
-  padding: 0 1.25rem;
-  color: #efeff1;
-  font-size: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  position: relative;
+	--main-color: #53fc18;
+	padding: 0 1.25rem;
+	color: #efeff1;
+	font-size: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	position: relative;
 `;
 
 const Header = styled.div`
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  padding-bottom: 8px;
-  position: relative;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	padding-bottom: 8px;
+	position: relative;
 `;
 
 const HeaderProgress = styled.div<{ width: string }>`
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  height: 1px;
-  background-color: var(--main-color);
-  width: ${(props) => props.width};
-  transition: width 1s linear;
-  z-index: 1;
+	position: absolute;
+	bottom: -1px;
+	left: 0;
+	height: 1px;
+	background-color: var(--main-color);
+	width: ${(props) => props.width};
+	transition: width 1s linear;
+	z-index: 1;
 `;
 
 const TitleArea = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 8px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 `;
 
 const Title = styled.strong`
-  flex-grow: 1;
+	flex-grow: 1;
 `;
 
 const AutocloseTimer = styled.span`
-  font-size: 12px;
-  color: #8e8e8e;
-  white-space: nowrap;
+	font-size: 12px;
+	color: #8e8e8e;
+	white-space: nowrap;
 `;
 
 const CloseButton = styled.button`
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  color: #8e8e8e;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 8px;
+	cursor: pointer;
+	background: transparent;
+	border: none;
+	color: #8e8e8e;
+	font-size: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	margin-left: 8px;
 
-  &:hover {
-    color: white;
-  }
+	&:hover {
+		color: white;
+	}
 `;
 
 const ContentArea = styled.div`
-  padding: 4px 0;
+	padding: 4px 0;
 `;
 
 export function MessagePopup({ title, content, autoclose, onClose }: ChatMessagePopupEvent) {
 	const [timeLeft, setTimeLeft] = useState(autoclose || 0);
 	const intervalRef = useRef<NodeJS.Timeout | null>(null);
 	const startTimeRef = useRef<number | null>(null);
+	const lastTimeLeftRef = useRef<number | null>(null);
 
 	useEffect(() => {
 		if (!autoclose || autoclose <= 0) {
@@ -147,6 +152,7 @@ export function MessagePopup({ title, content, autoclose, onClose }: ChatMessage
 		}
 
 		startTimeRef.current = Date.now();
+		lastTimeLeftRef.current = autoclose;
 		setTimeLeft(autoclose);
 
 		intervalRef.current = setInterval(() => {
@@ -157,7 +163,10 @@ export function MessagePopup({ title, content, autoclose, onClose }: ChatMessage
 			const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
 			const remaining = Math.max(0, autoclose - elapsed);
 
-			setTimeLeft(remaining - 1);
+			if (lastTimeLeftRef.current !== remaining - 1) {
+				lastTimeLeftRef.current = remaining - 1;
+				setTimeLeft(remaining - 1);
+			}
 
 			if (remaining === 0) {
 				if (intervalRef.current !== null) {

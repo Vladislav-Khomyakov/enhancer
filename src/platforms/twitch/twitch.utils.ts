@@ -9,6 +9,8 @@ import type {
 	ChatControllerComponent,
 	ChatInfoComponent,
 	ChatInputComponent,
+	ChatMessageSenderComponent,
+	ChatSentMessageTrackerComponent,
 	CurrentLiveStatusComponent,
 	FollowedSectionComponenet,
 	MediaPlayerComponent,
@@ -54,7 +56,7 @@ export default class TwitchUtils {
 	getUserIdBySideElement(element: Element): string | undefined {
 		return this.reactUtils.findReactChildren<number>(
 			this.reactUtils.getReactInstance(element),
-			(n) => !!n.pendingProps?.userID,
+			(n) => !!n?.pendingProps?.userID,
 			20,
 		)?.pendingProps?.userID;
 	}
@@ -67,7 +69,7 @@ export default class TwitchUtils {
 		if (!element) return undefined;
 
 		const reactInstance = this.reactUtils.getReactInstance(element);
-		const predicate = (n: any) => !!n.stateNode?.props?.mediaPlayerInstance;
+		const predicate = (n: any) => !!n?.stateNode?.props?.mediaPlayerInstance;
 
 		if (isDirect) {
 			return this.reactUtils.findReactParents<MediaPlayerComponent>(reactInstance, predicate, 200)?.stateNode;
@@ -108,7 +110,7 @@ export default class TwitchUtils {
 	getPersonalSections() {
 		return this.reactUtils.findReactParents<FollowedSectionComponenet>(
 			this.reactUtils.getReactInstance(document.querySelector(".side-nav-section")),
-			(n) => !!n.stateNode?.props?.section,
+			(n) => !!n?.stateNode?.props?.section,
 			100,
 		)?.stateNode;
 	}
@@ -116,14 +118,14 @@ export default class TwitchUtils {
 	getPersistentPlayer() {
 		return this.reactUtils.findReactChildren<PersistentPlayerComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".persistent-player")),
-			(n) => !!n.stateNode?.props?.content.channelLogin,
+			(n) => !!n?.stateNode?.props?.content?.channelLogin,
 		)?.stateNode.props;
 	}
 
 	getChatCommandStore() {
 		const node = this.reactUtils.findReactParents<never, never, ChatCommandStoreComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".stream-chat")),
-			(n) => n.pendingProps?.value?.getCommands != null,
+			(n) => n?.pendingProps?.value?.getCommands != null,
 			25,
 		);
 		return node?.pendingProps.value;
@@ -132,7 +134,7 @@ export default class TwitchUtils {
 	getChat() {
 		const node = this.reactUtils.findReactChildren<Chat>(
 			this.reactUtils.getReactInstance(document.querySelector(".stream-chat")),
-			(n) => n.stateNode?.props?.onSendMessage,
+			(n) => n?.stateNode?.props?.onSendMessage,
 			100,
 		);
 		return node?.stateNode;
@@ -143,10 +145,26 @@ export default class TwitchUtils {
 			this.reactUtils.getReactInstance(
 				document.querySelector('section[data-test-selector="chat-room-component-layout"]'),
 			),
-			(n) => n.stateNode?.props?.chatConnectionAPI,
+			(n) => n?.stateNode?.props?.chatConnectionAPI,
 			50,
 		);
 		return node?.stateNode;
+	}
+
+	getChatMessageSender() {
+		return this.reactUtils.findReactParents<ChatMessageSenderComponent>(
+			this.reactUtils.getReactInstance(document.querySelector(".chat-input__textarea")),
+			(n) => n?.stateNode?.props?.onSendMessage && n.stateNode.props.sendMessageErrorChecks,
+			30,
+		)?.stateNode;
+	}
+
+	getChatSentMessageTracker() {
+		return this.reactUtils.findReactChildren<ChatSentMessageTrackerComponent>(
+			this.reactUtils.getReactInstance(document.querySelector(".chat-input")),
+			(n) => n?.stateNode?.props?.registerSendMessageErrorCheck && "lastSentMessage" in (n.stateNode.state ?? {}),
+			200,
+		)?.stateNode;
 	}
 
 	addCommandToChat(command: TwitchChatCommand) {
@@ -169,16 +187,16 @@ export default class TwitchUtils {
 	getChannelId(): string {
 		return this.reactUtils.findReactChildren(
 			this.reactUtils.getReactInstance(document.querySelector(".channel-info-content")),
-			(n) => n.stateNode?.props?.channelID,
+			(n) => n?.stateNode?.props?.channelID,
 			1000,
-		)?.pendingProps.channelID;
+		)?.pendingProps?.channelID;
 	}
 
 	getChatMessage(message: Node | Element | HTMLElement | null) {
 		if (!message) return;
 		return this.reactUtils.findReactParents<never, { message?: TwitchChatMessage }>(
 			this.reactUtils.getReactInstance(message),
-			(n) => n.memoizedProps?.message,
+			(n) => n?.memoizedProps?.message,
 			10,
 		)?.memoizedProps.message;
 	}
@@ -186,7 +204,7 @@ export default class TwitchUtils {
 	getAutoCompleteHandler() {
 		return this.reactUtils.findReactChildren<ChatInputComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".chat-input__textarea")),
-			(n) => n.stateNode?.providers,
+			(n) => n?.stateNode?.providers,
 			100,
 		)?.stateNode;
 	}
@@ -257,7 +275,7 @@ export default class TwitchUtils {
 	getChatInfo() {
 		return this.reactUtils.findReactChildren<ChatInfoComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".chat-list--default")),
-			(n) => n.stateNode?.props?.sharedChatDataByChannelID,
+			(n) => n?.stateNode?.props?.sharedChatDataByChannelID,
 			100,
 		)?.stateNode;
 	}
@@ -266,9 +284,9 @@ export default class TwitchUtils {
 		return this.reactUtils.findReactChildren<CurrentLiveStatusComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".video-player__default-player")),
 			(n) =>
-				n?.stateNode?.props.isOffline !== undefined &&
-				n?.stateNode?.props.isPlaying !== undefined &&
-				n?.stateNode?.props.liveContentChannelLogin,
+				n?.stateNode?.props?.isOffline !== undefined &&
+				n?.stateNode?.props?.isPlaying !== undefined &&
+				n?.stateNode?.props?.liveContentChannelLogin,
 			100,
 		)?.stateNode.props;
 	}
@@ -277,9 +295,7 @@ export default class TwitchUtils {
 		return this.reactUtils.findReactChildren<VideoInfoComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".video-player__default-player")),
 			(n) =>
-				n?.stateNode?.props.content !== undefined &&
-				n?.stateNode?.props.content.channelLogin !== undefined &&
-				n?.stateNode?.props.content.type !== undefined,
+				n?.stateNode?.props?.content?.channelLogin !== undefined && n?.stateNode?.props?.content?.type !== undefined,
 			100,
 		)?.stateNode.props;
 	}
@@ -287,7 +303,7 @@ export default class TwitchUtils {
 	getChannelInfo(): ChannelInfo | undefined {
 		const props = this.reactUtils.findReactChildren<ChannelInfoComponent>(
 			this.reactUtils.getReactInstance(document.querySelector("#live-channel-stream-information")),
-			(n) => n?.stateNode?.props.channelLogin !== undefined && n?.stateNode?.props.channelName !== undefined,
+			(n) => n?.stateNode?.props?.channelLogin !== undefined && n?.stateNode?.props?.channelName !== undefined,
 			100,
 		)?.stateNode.props;
 		if (!props) return;
@@ -297,7 +313,7 @@ export default class TwitchUtils {
 	getChannelInfoFromHomeLowerContent(): ChannelInfo | undefined {
 		const props = this.reactUtils.findReactChildren<ChannelInfoAlternativeComponent>(
 			this.reactUtils.getReactInstance(document.querySelector(".home__lower-content")),
-			(n) => n?.stateNode?.props.channelID !== undefined && n?.stateNode?.props.channelLogin !== undefined,
+			(n) => n?.stateNode?.props?.channelID !== undefined && n?.stateNode?.props?.channelLogin !== undefined,
 			100,
 		)?.stateNode.props;
 		if (!props) return;
@@ -312,7 +328,7 @@ export default class TwitchUtils {
 		const reactRoot = this.reactUtils.getReactRoot(document.querySelector("#root"));
 		return this.reactUtils.findReactChildren<never, never, RootComponent>(
 			reactRoot?._internalRoot?.current ?? reactRoot,
-			(n) => n.pendingProps?.value?.client,
+			(n) => n?.pendingProps?.value?.client,
 			100,
 		)?.pendingProps.value.client;
 	}
@@ -338,5 +354,15 @@ export default class TwitchUtils {
 
 	is7TV() {
 		return document.querySelector("html")?.className.includes("seventv");
+	}
+
+	navigate(url: string): void {
+		const target = new URL(url);
+		if (target.host !== window.location.host) {
+			window.location.assign(url);
+			return;
+		}
+		window.history.pushState(window.history.state, "", `${target.pathname}${target.search}`);
+		window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
 	}
 }

@@ -1,11 +1,12 @@
 import KickModule from "$kick/kick.module.ts";
+import { ChannelPinsHelper } from "$shared/module/helpers/channel-pins.helper.ts";
 import {
 	type ChannelSectionAction,
 	ChannelSectionComponent,
 } from "$shared/components/channel-section/channel-section.component.tsx";
 import type { QuickAccessLink } from "$types/shared/components/settings.component.types.ts";
 import type { KickModuleConfig } from "$types/shared/module/module.types.ts";
-import { type Signal, signal } from "@preact/signals";
+import { type Signal, computed, signal } from "@preact/signals";
 import { render } from "preact";
 
 export default class ChannelSectionModule extends KickModule {
@@ -14,6 +15,9 @@ export default class ChannelSectionModule extends KickModule {
 	private currentUsername = signal("");
 	private readonly settingsActionIcon = "⚙";
 	private watchtimeInterval: NodeJS.Timeout | undefined;
+	private pins!: ChannelPinsHelper;
+	private pinnedStreamersEnabled = signal(false);
+	private headerActions = computed(() => this.getHeaderActions());
 
 	readonly config: KickModuleConfig = {
 		name: "channel-info",
@@ -35,12 +39,31 @@ export default class ChannelSectionModule extends KickModule {
 					this.quickAccessLinks.value = quickAccessLinks;
 				},
 			},
+			{
+				type: "event",
+				key: "pin-streamer-enabled-sync",
+				event: "global:settings:pinnedStreamersEnabled",
+				callback: (enabled) => {
+					this.pinnedStreamersEnabled.value = enabled;
+				},
+			},
+			{
+				type: "event",
+				key: "pin-streamer-settings-refresh",
+				event: "extension:settings-refresh",
+				callback: () => {
+					this.pinnedStreamersEnabled.value = this.globalSettings().pinnedStreamersEnabled;
+				},
+			},
 		],
 	};
 
 	async initialize() {
 		const quickAccessLinks = this.settings().quickAccessLinks;
 		this.quickAccessLinks = signal(quickAccessLinks);
+		this.pinnedStreamersEnabled.value = this.globalSettings().pinnedStreamersEnabled;
+		this.pins = new ChannelPinsHelper("kick", this.workerService());
+		void this.pins.load();
 	}
 
 	private async run(elements: Element[]) {
@@ -48,12 +71,13 @@ export default class ChannelSectionModule extends KickModule {
 			(element as HTMLElement).style.flexDirection = "column";
 		});
 		const wrappers = this.commonUtils().createEmptyElements(this.getId(), elements, "div");
+		// The applier can win the race against Kick's React tree, and `once` means there is no second attempt.
+		const channelName = await this.resolveChannelName();
+		if (!channelName) {
+			this.logger.warn("Channel name not found");
+			return;
+		}
 		for (const wrapper of wrappers) {
-			const channelName = this.kickUtils().getChannelInfo()?.slug;
-			if (!channelName) {
-				this.logger.warn("Channel name not found");
-				continue;
-			}
 			this.currentUsername.value = channelName;
 			await this.startWatchtimeUpdates();
 			const logo = await this.commonUtils().getAssetFile(
@@ -68,15 +92,42 @@ export default class ChannelSectionModule extends KickModule {
 					sites={this.quickAccessLinks}
 					watchTime={this.watchtimeCounter}
 					logoUrl={logo}
-					actions={this.getHeaderActions()}
+					actions={this.headerActions}
 				/>,
 				wrapper,
 			);
 		}
 	}
 
+	private async resolveChannelName(): Promise<string | undefined> {
+		let channelName: string | undefined;
+		await this.commonUtils().waitFor(
+			() => this.kickUtils().getChannelInfo()?.slug,
+			(slug) => {
+				channelName = slug;
+				return true;
+			},
+			{ maxRetries: 10, delay: 200 },
+		);
+		return channelName;
+	}
+
 	private getHeaderActions(): ChannelSectionAction[] {
+		const login = this.currentUsername.value.toLowerCase();
+		const pinned = !!login && this.pins.pins.value.has(login);
+		const pinAction: ChannelSectionAction[] =
+			this.pinnedStreamersEnabled.value && login
+				? [
+						{
+							key: "pin-streamer",
+							icon: pinned ? "★" : "☆",
+							tooltip: pinned ? "Unpin streamer" : "Pin streamer",
+							onClick: () => void this.pins.setPinned(login, !pinned),
+						},
+					]
+				: [];
 		return [
+			...pinAction,
 			{
 				key: "open-settings",
 				icon: this.settingsActionIcon,
@@ -105,9 +156,10 @@ export default class ChannelSectionModule extends KickModule {
 			clearInterval(this.watchtimeInterval);
 		}
 		await this.updateWatchtime();
+		// Background accumulator persists watchtime every 5s, so polling faster returns identical values.
 		this.watchtimeInterval = setInterval(async () => {
 			await this.updateWatchtime();
-		}, 1000);
+		}, 5000);
 	}
 
 	private async getWatchTime(channelName: string): Promise<number> {

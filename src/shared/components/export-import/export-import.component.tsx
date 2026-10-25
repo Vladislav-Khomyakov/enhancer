@@ -1,6 +1,7 @@
 import { Logger } from "$shared/logger/logger.ts";
 import type WorkerService from "$shared/worker/worker.service.ts";
 import type { CommonEvents } from "$types/platforms/common.events.ts";
+import type { GlobalSettings } from "$types/shared/settings/global-settings.types.ts";
 import type { PlatformSettings } from "$types/shared/worker/settings-worker.types.ts";
 import type { PlatformType, WatchtimeRecord } from "$types/shared/worker/worker.types.ts";
 import type { Emitter } from "nanoevents";
@@ -63,7 +64,10 @@ const ActionButton = styled.button`
 	font-size: 12px;
 	font-weight: 500;
 	cursor: pointer;
-	transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+	transition:
+		border-color 0.15s ease,
+		color 0.15s ease,
+		background 0.15s ease;
 	min-width: 104px;
 	display: flex;
 	align-items: center;
@@ -105,8 +109,14 @@ const StatusOverlay = styled.div<{ type: "success" | "error" }>`
 	border: 1px solid ${(props) => (props.type === "success" ? "rgba(102, 187, 106, 0.3)" : "rgba(255, 82, 82, 0.3)")};
 
 	@keyframes slideIn {
-		from { opacity: 0; transform: translateY(10px); }
-		to { opacity: 1; transform: translateY(0); }
+		from {
+			opacity: 0;
+			transform: translateY(10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 `;
 
@@ -119,6 +129,7 @@ export interface ExportImportMetadata {
 export interface ExportImportData {
 	meta: ExportImportMetadata;
 	settings: Record<string, unknown>;
+	globalSettings?: Partial<GlobalSettings>;
 	watchtime: WatchtimeRecord[];
 }
 
@@ -146,7 +157,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 		setStatus({ message, type });
 	};
 
-	const fetchAllWatchtime = async (platform: PlatformType): Promise<WatchtimeRecord[]> => {
+	const fetchAllWatchtime = async (): Promise<WatchtimeRecord[]> => {
 		const allData: WatchtimeRecord[] = [];
 		let currentPageNum = 1;
 		let hasMore = true;
@@ -180,19 +191,21 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 		setStatus(null);
 		try {
 			const settings = await workerService.send("getSettings", { platform });
-			const watchtime = await fetchAllWatchtime(platform);
+			const globalSettings = await workerService.send("getGlobalSettings", {});
+			const watchtime = await fetchAllWatchtime();
 
-			const exportData: ExportImportData = {
+			const backup: ExportImportData = {
 				meta: {
 					version: window.enhancer.version,
 					platform,
 					exportDate: new Date().toISOString(),
 				},
 				settings: settings || {},
+				globalSettings: globalSettings ?? undefined,
 				watchtime,
 			};
 
-			const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+			const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
 			a.href = url;
@@ -219,7 +232,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 			let data: ExportImportData;
 			try {
 				data = JSON.parse(text);
-			} catch (parseError) {
+			} catch {
 				showStatus("Invalid JSON format in backup file", "error");
 				return;
 			}
@@ -239,7 +252,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 			}
 
 			// Validate structure
-			if (!data.settings && !data.watchtime) {
+			if (!data.settings && !data.globalSettings && !data.watchtime) {
 				showStatus("Invalid backup file: no data found", "error");
 				return;
 			}
@@ -257,6 +270,21 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 				} catch (error) {
 					logger.error("Failed to import settings:", error);
 					showStatus("Failed to import settings", "error");
+					return;
+				}
+			}
+
+			if (data.globalSettings && typeof data.globalSettings === "object") {
+				try {
+					const { crossPlatformFollowsSyncEnabled, ...changes } = data.globalSettings;
+					// Sharing follows needs the consent dialog, so a backup can only turn it off.
+					const settings: Partial<GlobalSettings> =
+						crossPlatformFollowsSyncEnabled === false ? { ...changes, crossPlatformFollowsSyncEnabled } : changes;
+					await workerService.send("updateGlobalSettings", { settings });
+					importedSettings += Object.keys(settings).length;
+				} catch (error) {
+					logger.error("Failed to import shared settings:", error);
+					showStatus("Failed to import shared settings", "error");
 					return;
 				}
 			}
@@ -330,7 +358,7 @@ export function ExportImportComponent({ platform, workerService, emitter }: Expo
 			<InfoSection>
 				<InfoTitle>Data Backup</InfoTitle>
 				<InfoDescription>
-					This backup handles data for <PlatformTag>{platform}</PlatformTag> only.
+					This backup handles data for <PlatformTag>{platform}</PlatformTag> and the settings shared by Twitch and Kick.
 				</InfoDescription>
 			</InfoSection>
 

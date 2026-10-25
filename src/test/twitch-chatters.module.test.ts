@@ -9,6 +9,7 @@ function createChattersModule(twitchUtils: unknown) {
 		{} as never,
 		{} as never,
 		{} as never,
+		{} as never,
 		twitchUtils as never,
 		{} as never,
 	);

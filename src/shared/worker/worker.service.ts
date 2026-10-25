@@ -1,11 +1,7 @@
+import { BRIDGE_ELEMENT_TAG } from "$shared/extension.constants.ts";
 import { Logger } from "$shared/logger/logger.ts";
 import type { LogEntry } from "$types/shared/logger.types.ts";
 import type {
-	CachedAggregateSeed,
-	EnhancerApiSeedRequestPayload,
-} from "$types/shared/worker/enhancer-api-worker.types.ts";
-import type {
-	ExtensionMessageDetail,
 	ExtensionResponseDetail,
 	WorkerAction,
 	WorkerApiActions,
@@ -15,17 +11,17 @@ import type {
 export default class WorkerService {
 	private readonly logger = new Logger({ context: "worker" });
 	private readonly element: HTMLElement;
-	private pendingMessages = new Map<string, { resolve: (response: any) => void; reject: (error: Error) => void }>();
+	private pendingMessages = new Map<
+		string,
+		{ resolve: (response: any) => void; reject: (error: Error) => void; timeout: number }
+	>();
 	private pingInterval: number | null = null;
 	private broadcastHandlers = new Map<string, Set<(payload: any) => void>>();
 	private restartHandlers = new Set<() => void>();
-	private enhancerApiSeedHandlers = new Set<
-		(topic: EnhancerApiSeedRequestPayload["topic"]) => CachedAggregateSeed | null
-	>();
 	private workerInstanceId: string | null = null;
 
 	constructor() {
-		this.element = document.createElement("enhancer-bridge");
+		this.element = document.createElement(BRIDGE_ELEMENT_TAG);
 		document.body.appendChild(this.element);
 		this.setupBroadcastListener();
 	}
@@ -76,12 +72,6 @@ export default class WorkerService {
 		this.restartHandlers.add(handler);
 	}
 
-	onEnhancerApiSeedRequest(
-		handler: (topic: EnhancerApiSeedRequestPayload["topic"]) => CachedAggregateSeed | null,
-	): void {
-		this.enhancerApiSeedHandlers.add(handler);
-	}
-
 	private startPing() {
 		this.pingInterval = window.setInterval(() => void this.ping(), 5000);
 	}
@@ -106,6 +96,7 @@ export default class WorkerService {
 			const pending = this.pendingMessages.get(messageId);
 			if (pending) {
 				this.pendingMessages.delete(messageId);
+				clearTimeout(pending.timeout);
 				if (error) {
 					pending.reject(new Error(error));
 					return;
@@ -116,19 +107,6 @@ export default class WorkerService {
 	}
 
 	private setupBroadcastListener() {
-		this.element.addEventListener("enhancer-api-seed-request", ((event: CustomEvent<string>) => {
-			const request = JSON.parse(event.detail) as EnhancerApiSeedRequestPayload;
-			let seed: CachedAggregateSeed | null = null;
-			for (const handler of this.enhancerApiSeedHandlers) {
-				seed = handler(request.topic);
-				if (seed) break;
-			}
-			this.element.dispatchEvent(
-				new CustomEvent<string>("enhancer-api-seed-response", {
-					detail: JSON.stringify({ requestId: request.requestId, seed }),
-				}),
-			);
-		}) as EventListener);
 		this.element.addEventListener("enhancer-broadcast", ((event: CustomEvent<string>) => {
 			try {
 				const broadcast = JSON.parse(event.detail) as WorkerBroadcast;
@@ -150,7 +128,13 @@ export default class WorkerService {
 	): Promise<WorkerApiActions[T]["response"] | null> {
 		return new Promise((resolve, reject) => {
 			const messageId = crypto.randomUUID();
-			this.pendingMessages.set(messageId, { resolve, reject });
+			const timeout = window.setTimeout(() => {
+				if (this.pendingMessages.has(messageId)) {
+					this.pendingMessages.delete(messageId);
+					resolve(null);
+				}
+			}, 10000);
+			this.pendingMessages.set(messageId, { resolve, reject, timeout });
 
 			const payload = args.length > 0 ? args[0] : undefined;
 			const event = new CustomEvent<string>("enhancer-message", {
@@ -158,13 +142,6 @@ export default class WorkerService {
 			});
 
 			this.element.dispatchEvent(event);
-
-			setTimeout(() => {
-				if (this.pendingMessages.has(messageId)) {
-					this.pendingMessages.delete(messageId);
-					resolve(null);
-				}
-			}, 10000);
 		});
 	}
 

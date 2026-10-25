@@ -2,7 +2,7 @@ import {
 	type ChannelSectionAction,
 	ChannelSectionComponent,
 } from "$shared/components/channel-section/channel-section.component.tsx";
-import type { TwitchPinnedStreamerSyncEvent } from "$types/platforms/twitch/twitch.events.types.ts";
+import { ChannelPinsHelper } from "$shared/module/helpers/channel-pins.helper.ts";
 import type { QuickAccessLink } from "$types/shared/components/settings.component.types.ts";
 import type { TwitchModuleConfig } from "$types/shared/module/module.types.ts";
 import { type Signal, computed, signal } from "@preact/signals";
@@ -17,11 +17,14 @@ export default class ChannelSectionModule extends TwitchModule {
 	private currentChannelId = signal("");
 	private readonly settingsActionIcon = "⚙";
 	private watchtimeInterval: NodeJS.Timeout | undefined;
-	private pinnedStreamers = signal<string[]>([]);
+	private watchtimeLogin = "";
+	private watchtimeFetchedAt = 0;
+	private static readonly WATCHTIME_REFRESH_MS = 5000;
+	private pins!: ChannelPinsHelper;
 	private pinnedStreamersEnabled = signal(false);
-	private pinStreamerIcon = computed(() => (this.isPinnedStreamer(this.currentChannelId.value) ? "★" : "☆"));
+	private pinStreamerIcon = computed(() => (this.isPinnedStreamer(this.currentLogin.value) ? "★" : "☆"));
 	private pinStreamerTooltip = computed(() =>
-		this.isPinnedStreamer(this.currentChannelId.value) ? "Unpin streamer" : "Pin streamer",
+		this.isPinnedStreamer(this.currentLogin.value) ? "Unpin streamer" : "Pin streamer",
 	);
 	private headerActions = computed(() => this.getHeaderActions());
 
@@ -46,16 +49,18 @@ export default class ChannelSectionModule extends TwitchModule {
 			},
 			{
 				type: "event",
-				key: "pin-streamer-sync",
-				event: "twitch:pinnedStreamer:sync",
-				callback: this.syncPinnedStreamerAction.bind(this),
+				key: "pin-streamer-enabled-sync",
+				event: "global:settings:pinnedStreamersEnabled",
+				callback: (enabled) => {
+					this.pinnedStreamersEnabled.value = enabled;
+				},
 			},
 			{
 				type: "event",
-				key: "pin-streamer-enabled-sync",
-				event: "twitch:settings:pinnedStreamersEnabled",
-				callback: (enabled) => {
-					this.pinnedStreamersEnabled.value = enabled;
+				key: "pin-streamer-settings-refresh",
+				event: "extension:settings-refresh",
+				callback: () => {
+					this.pinnedStreamersEnabled.value = this.globalSettings().pinnedStreamersEnabled;
 				},
 			},
 		],
@@ -64,8 +69,9 @@ export default class ChannelSectionModule extends TwitchModule {
 	initialize() {
 		const quickAccessLinks = this.settings().quickAccessLinks;
 		this.quickAccessLinks = signal(quickAccessLinks);
-		this.pinnedStreamers.value = this.settings().pinnedStreamers;
-		this.pinnedStreamersEnabled.value = this.settings().pinnedStreamersEnabled;
+		this.pinnedStreamersEnabled.value = this.globalSettings().pinnedStreamersEnabled;
+		this.pins = new ChannelPinsHelper("twitch", this.workerService());
+		void this.pins.load();
 	}
 
 	private async run(elements: Element[]) {
@@ -94,20 +100,15 @@ export default class ChannelSectionModule extends TwitchModule {
 
 	private getHeaderActions(): ChannelSectionAction[] {
 		const actions: ChannelSectionAction[] = [];
-		const channelId = this.currentChannelId.value;
-		if (this.pinnedStreamersEnabled.value && channelId) {
+		const login = this.currentLogin.value;
+		if (this.pinnedStreamersEnabled.value && login) {
 			actions.push({
 				key: "pin-streamer",
 				icon: this.pinStreamerIcon,
 				tooltip: this.pinStreamerTooltip,
 				onClick: () => {
-					const currentChannelId = this.currentChannelId.value;
-					if (!currentChannelId) return;
-					this.emitter.emit("twitch:pinnedStreamer:sync", {
-						channelId: currentChannelId,
-						isPinned: !this.isPinnedStreamer(currentChannelId),
-						source: "channel-section",
-					});
+					const currentLogin = this.currentLogin.value;
+					if (currentLogin) void this.pins.setPinned(currentLogin, !this.isPinnedStreamer(currentLogin));
 				},
 			});
 		}
@@ -144,24 +145,22 @@ export default class ChannelSectionModule extends TwitchModule {
 		return false;
 	}
 
-	private syncPinnedStreamerAction({ channelId, isPinned }: TwitchPinnedStreamerSyncEvent) {
-		if (this.isPinnedStreamer(channelId) === isPinned) return;
-		if (isPinned) {
-			this.pinnedStreamers.value = [...this.pinnedStreamers.value, channelId];
-		} else {
-			this.pinnedStreamers.value = this.pinnedStreamers.value.filter((id) => id !== channelId);
-		}
-	}
-
-	private isPinnedStreamer(channelId: string): boolean {
-		return this.pinnedStreamers.value.includes(channelId);
+	private isPinnedStreamer(login: string): boolean {
+		return !!login && this.pins.pins.value.has(login.toLowerCase());
 	}
 
 	private async updateWatchtime() {
 		if (this.updateNames()) return;
-		if (this.currentLogin.value.length < 1) return;
+		const login = this.currentLogin.value;
+		if (login.length < 1) return;
+		const now = Date.now();
+		if (login === this.watchtimeLogin && now - this.watchtimeFetchedAt < ChannelSectionModule.WATCHTIME_REFRESH_MS) {
+			return;
+		}
+		this.watchtimeLogin = login;
+		this.watchtimeFetchedAt = now;
 		try {
-			this.watchtimeCounter.value = await this.getWatchTime(this.currentLogin.value);
+			this.watchtimeCounter.value = await this.getWatchTime(login);
 		} catch (error) {
 			this.logger.error("Failed to fetch watch time:", error);
 		}
@@ -171,11 +170,11 @@ export default class ChannelSectionModule extends TwitchModule {
 		if (!("value" in this.watchtimeCounter)) {
 			this.watchtimeCounter = signal(0);
 		}
-		if (this.watchtimeInterval) {
-			clearInterval(this.watchtimeInterval);
-		}
+		clearInterval(this.watchtimeInterval);
 		await this.updateWatchtime();
+		clearInterval(this.watchtimeInterval);
 		this.watchtimeInterval = setInterval(async () => {
+			if (document.hidden) return;
 			await this.updateWatchtime();
 		}, 1000);
 	}

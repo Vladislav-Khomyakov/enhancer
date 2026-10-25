@@ -4,6 +4,7 @@ import TwitchModule from "../../twitch.module.ts";
 export default class StreamLatencyReducerModule extends TwitchModule {
 	private updateInterval: NodeJS.Timeout | undefined;
 	private isLiveCache = false;
+	private playerMissing = false;
 
 	readonly config: TwitchModuleConfig = {
 		name: "stream-latency-reducer",
@@ -69,6 +70,7 @@ export default class StreamLatencyReducerModule extends TwitchModule {
 	}
 
 	private changePlaybackSpeed(video: HTMLVideoElement, rate: number) {
+		if (video.playbackRate === rate) return;
 		if (
 			// do not change this, it has to check if it is === false (it can be undefined)
 			this.getFFZAllowCatchup() === false &&
@@ -78,7 +80,7 @@ export default class StreamLatencyReducerModule extends TwitchModule {
 			try {
 				// Needed to remove setter, which is then inherited
 				// @ts-ignore - playbackRate's existence is implied by the check above
-				// biome-ignore lint/performance/noDelete: setting to undefined does not reset it completely
+				// setting to undefined does not reset it completely
 				delete video.playbackRate;
 			} catch (error) {
 				this.logger.error(error);
@@ -159,9 +161,11 @@ export default class StreamLatencyReducerModule extends TwitchModule {
 	private getPlayer() {
 		const mediaPlayer = this.twitchUtils().getMediaPlayerInstance();
 		if (!mediaPlayer) {
-			this.logger.warn("Failed to find media player");
+			if (!this.playerMissing) this.logger.warn("Failed to find media player");
+			this.playerMissing = true;
 			return;
 		}
+		this.playerMissing = false;
 		return mediaPlayer;
 	}
 }

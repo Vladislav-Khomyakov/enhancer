@@ -1,6 +1,12 @@
+import type { XayoWatchtimePeriod } from "$types/apis/enhancer.apis.ts";
+import type { RealVideoTimeDateMode } from "$types/shared/components/real-video-time.component.types.ts";
 import type { QuickAccessLink } from "$types/shared/components/settings.component.types.ts";
 
+export type KickForceQualityPreference = "highest" | "1080" | "720" | "480" | "360" | "160";
+
 export type KickSettings = {
+	forceQualityEnabled: boolean;
+	forceQualityPreferred: KickForceQualityPreference;
 	chatImagesEnabled: boolean;
 	chatImagesOnHover: boolean;
 	chatImagesSize: number;
@@ -17,6 +23,9 @@ export type KickSettings = {
 	streamLatencyReducerMaxThreshold: number;
 	realVideoTimeEnabled: boolean;
 	realVideoTimeFormat12h: boolean;
+	realVideoTimeDateMode: RealVideoTimeDateMode;
+	xayoWatchtimeEnabled: boolean;
+	xayoWatchtimePeriod: XayoWatchtimePeriod;
 	channelSection: boolean;
 	_disableExtensionOnDashboard: boolean;
 };

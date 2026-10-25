@@ -32,6 +32,7 @@ function createChatModule(emitter: ConstructorParameters<typeof ChatModule>[0] =
 		{} as never,
 		{} as never,
 		{} as never,
+		{} as never,
 	);
 }
 
@@ -49,10 +50,15 @@ test("finalizes a queued 7TV message id", () => {
 	});
 
 	const message = { ...MESSAGE, id: "", nonce: "message-nonce" };
+	const nonceLinkMessage = {
+		id: "final-id",
+		nonce: message.nonce,
+		type: 50,
+	} as TwitchChatMessage;
 
 	try {
 		(chatModule as any).bufferSevenTvMessage(message);
-		(chatModule as any).bufferSevenTvMessage({ ...message, id: "final-id", type: 51 });
+		(chatModule as any).bufferSevenTvMessage(nonceLinkMessage);
 		const element = { getAttribute: () => "final-id" } as unknown as Element;
 
 		expect((chatModule as any).getSevenTvMessage(element).id).toBe("final-id");
@@ -78,7 +84,8 @@ test("intercepts messages before 7TV suppresses the Twitch handler", () => {
 	Object.defineProperty(globalThis, "document", {
 		configurable: true,
 		value: {
-			querySelector: (selector: string) => (selector === ChatModule.SEVENTV_CHAT_SELECTOR ? {} : null),
+			querySelector: (selector: string) =>
+				selector === ChatModule.SEVENTV_CHAT_SELECTOR ? { querySelector: () => null } : null,
 		},
 	});
 	Object.defineProperty(globalThis, "CSS", {

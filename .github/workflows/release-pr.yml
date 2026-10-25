@@ -1,0 +1,47 @@
+name: Release PRs
+
+on:
+  push:
+    branches:
+      - master
+      - stable
+      - canary
+  pull_request_target:
+    types: [edited]
+    branches:
+      - stable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    name: Update release PRs
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.ref == 'release-stable' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.changes.body)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+      checks: write
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Create or update release PRs
+        uses: actions/github-script@d7906e4ad0b1822421a7e6a35d5ca353c962f410
+        with:
+          script: |
+            const run = require("./.github/scripts/release-pr.cjs");
+            await run({ github, context, core, exec });

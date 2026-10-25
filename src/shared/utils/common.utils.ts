@@ -1,7 +1,5 @@
 import type WorkerService from "$shared/worker/worker.service.ts";
-import type { RequestConfig, RequestResponse } from "$types/shared/http-client.types.ts";
 import type { WaitForConfig } from "$types/shared/utils/common.utils.types.ts";
-import { defaultAllowedOrigins } from "vite";
 
 export default class CommonUtils {
 	static readonly UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -83,6 +81,14 @@ export default class CommonUtils {
 			return `${twelveHour}:${minutes}:${seconds} ${ampm}`;
 		}
 		return `${hours.toString().padStart(2, "0")}:${minutes}:${seconds}`;
+	}
+
+	timeInMsToDate(timeInMs: number): string {
+		if (!Number.isFinite(timeInMs) || timeInMs < 0) return "";
+		const date = new Date(timeInMs);
+		const day = date.getDate().toString().padStart(2, "0");
+		const month = (date.getMonth() + 1).toString().padStart(2, "0");
+		return `${day}.${month}.${date.getFullYear()}`;
 	}
 
 	getLowestBadgeSourceUrl(sources: Record<string, string>): string | null {

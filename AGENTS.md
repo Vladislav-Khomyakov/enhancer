@@ -9,11 +9,14 @@ Enhancer is a Manifest V3 browser extension that adds features to Twitch and Kic
 | Command | Description |
 |---------|-------------|
 | `bun run dev` | Concurrent typecheck:watch + vite build --watch + dev server (port 3360) |
-| `bun run build` | Production: biome lint + typecheck + vite build (minified) |
+| `bun run build` | Production: oxlint + oxfmt check + typecheck + vite build (minified) |
 | `bun run typecheck` | `tsc --noEmit` |
 | `bun run typecheck:watch` | `tsc --noEmit --watch` |
+| `bun run lint` | `oxlint ./src` |
+| `bun run format` | `oxfmt ./src` |
+| `bun run check` | `oxlint ./src` + `oxfmt --check ./src` |
 
-Always run `bun run typecheck` and `npx @biomejs/biome check src/` after making changes.
+Always run `bun run typecheck` and `bun run check` after making changes.
 
 ## Browser Compatibility Testing
 
@@ -25,6 +28,41 @@ For browser-visible changes, keep Enhancer enabled and test each third-party ext
 - Kick: 7TV, NipahTV, and no third-party extension.
 
 Disable the other third-party extensions for each test run so compatibility issues can be attributed correctly.
+
+### Multi-CDP Browser Setup
+
+If you use the Multi-CDP MCP for browser testing, follow its skill instructions and prepare the environment with the required extensions before testing. The environment and extension management tools below are specific to Multi-CDP.
+
+#### Prepare the environment
+
+1. Run `bun run pack` in the current worktree.
+2. Check `cdp_environment_list` and reuse the environment bound to the current session when possible.
+3. For a new environment, use a visible window and the configured template profile. Load the current worktree's build through `devExtensionPaths`:
+
+   ```js
+   cdp_environment_create({
+       name: "<unique name for this task>",
+       headless: false,
+       fresh: false,
+       devExtensionPaths: ["<absolute path to the current worktree's dist>"]
+   })
+   ```
+
+   `fresh: false` uses the template profile, which is expected to contain the compatibility extensions. `fresh: true` starts without that template state and requires the extensions to be installed separately.
+
+4. Call `cdp_extension_list` to confirm the installed extensions. Check for current 7TV (3.x), legacy 7TV (1.x), BetterTTV, FrankerFaceZ, and NipahTV as required by the test matrix above. Resolve IDs by name and version; do not hardcode IDs or assume an extension is present because it exists in another environment.
+5. If a required extension is missing, load an available unpacked build with `install_extension({ path: "<absolute extension directory>" })`. Additional unpacked builds can also be supplied through `devExtensionPaths` when creating the environment. Use existing, verified paths; if no build is available, report the missing setup requirement.
+
+#### Select and verify the test configuration
+
+1. Keep the current worktree's Enhancer build enabled. Disable any other Enhancer installation inherited from the template so only one build is active.
+2. Use `cdp_extension_set_enabled` to enable exactly one third-party extension and disable the others. For native testing, disable all third-party extensions. Never enable current and legacy 7TV together.
+3. Fully reload the Twitch or Kick page after every extension configuration change. Existing tabs may retain injected code from disabled extensions.
+4. After rebuilding Enhancer, call `cdp_extension_reload` for the tested build and reload the target page.
+5. Confirm runtime activation through the extension's own UI, injected scripts, or modified chat. Check browser site access and the extension's per-site settings if initialization fails. Use a working live channel with active chat to verify chat integrations, then test the relevant VOD when needed.
+6. Bring the target page to the foreground and use real pointer input for hover tests. JavaScript `dispatchEvent()` alone does not activate CSS `:hover`. If an element is missing from the accessibility snapshot, check the DOM and computed styles; `aria-hidden` or auto-hiding controls can prevent tool interaction even when the feature is visible.
+
+An installed/enabled extension alone is not evidence of runtime activation. Report PASS only after confirming activation and testing the Enhancer feature. Report FAIL only for a reproduced feature regression with a verified setup. A missing extension, rejected build path, or failed browser setup is a BLOCKED test; describe the blocker and the checks already attempted.
 
 ## Directory Structure
 
@@ -40,7 +78,7 @@ src/
       modules/                # Twitch feature modules (~23 modules)
     kick/                     # All Kick-specific code (mirrors twitch/ structure)
   shared/
-    apis/                     # EnhancerApi — external backend API client
+    apis/                     # EnhancerApi (backend client), EmotesApi (emotes-api client, `this.emotesApi()` in modules)
     components/               # Reusable Preact UI components
     event/                    # EventEmitterFactory (wraps nanoevents)
     logger/                   # Colored console Logger
@@ -135,7 +173,7 @@ config: TwitchModuleConfig = {
 
 ### Applier types
 
-- **Selector applier** (`type: "selector"`): Polls DOM every 1 second. Supports `once` (run once per element), `cooldown`, `validateUrl`, `useParent`. Tracks processed elements via `enhanced` DOM attributes.
+- **Selector applier** (`type: "selector"`): A `MutationObserver` triggers a full run when elements are added outside the platform's `ignoredMutationSelectors` (chat lists), at most every 500 ms (2 s in hidden tabs). Appliers without `once` also run every 1 s, and every applier runs at least every 5 s and after settings change. Supports `once` (run once per element), `cooldown`, `validateUrl`, `useParent`. Tracks processed elements via `enhanced` DOM attributes.
 - **Event applier** (`type: "event"`): Subscribes to a nanoevents event. Event must be defined in the platform's Events type.
 
 ### Creating a new module
@@ -283,12 +321,23 @@ Modules targeting Twitch can use Twitch's CSS custom properties (`--border-radiu
 
 ## Lint & Formatting
 
-- **Tool:** Biome 1.9.4 (unified linter + formatter)
-- **Line width:** 120
-- **Pre-commit:** Husky + lint-staged runs `biome check --write` on staged files
-- **CI:** `bun run build` runs `biome ci ./src` before typecheck
+- **Linter:** Oxlint 1.x (`.oxlintrc.json`)
+- **Formatter:** oxfmt (`.oxfmtrc.json`)
+- **Line width:** 120, tabs, LF
+- **Pre-commit:** Husky + lint-staged runs `oxlint --fix` then `oxfmt` on staged files
+- **CI:** `bun run build` runs `bun run check` before typecheck; `ci-lint.yml` autofixes PRs
 
-Key rules: `noForEach` off, `noExplicitAny` off, `noSvgWithoutTitle` off.
+Categories: `correctness` errors, `suspicious` warnings. Key rules off: `typescript/no-explicit-any`,
+`react/react-in-jsx-scope`, `react-hooks/exhaustive-deps`, `eslint/no-underscore-dangle`,
+`unicorn/consistent-function-scoping`. `eslint/no-unused-vars` ignores `_`-prefixed identifiers.
+
+## Git Workflow
+
+- Every change goes through a PR into `master` and is merged with **Squash and merge**.
+- Never open PRs into `stable` or `canary` and never push to them. They only take the bot release PRs (`release-stable`, `release-hotfix`, `master` → `canary`), merged with **Create a merge commit**.
+- Hotfixes also go through `master`: untick every other change in the `release(stable)` PR and pick patch, so the bot cherry-picks only the fix onto `stable`.
+- Never merge the `sync-stable` → `master` PR by hand. Add the `merge-sync` label and the `enhancer-release` app merges it.
+- See `docs/development.md` → Releasing for the full flow.
 
 ## Critical Rules
 
@@ -301,4 +350,4 @@ Key rules: `noForEach` off, `noExplicitAny` off, `noSvgWithoutTitle` off.
 7. **No comments in code.** Unless explicitly requested.
 8. **Module access to settings cache.** Use `this.settings()` for the settings object, `this.settingsCache()` when you need the cache instance (e.g., for `SettingsHelper`).
 9. **Extension contexts.** `index.ts` runs in the main world, `worker.bridge.ts` runs as a content script (isolated world). They share the DOM but have separate JS contexts. CustomEvents on DOM elements are visible across worlds.
-10. **The `enabled` callback on ModuleConfig is synchronous.** It's checked on every selector applier poll cycle (1s interval). Keep it fast.
+10. **The `enabled` callback on ModuleConfig is synchronous.** It's checked on every selector applier poll cycle (up to once per second). Keep it fast.

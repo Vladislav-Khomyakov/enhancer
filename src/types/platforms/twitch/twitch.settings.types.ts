@@ -1,20 +1,26 @@
+import type { XayoWatchtimePeriod } from "$types/apis/enhancer.apis.ts";
+import type { RealVideoTimeDateMode } from "$types/shared/components/real-video-time.component.types.ts";
 import type { QuickAccessLink } from "$types/shared/components/settings.component.types.ts";
 
 export type TwitchSettings = {
 	chatImagesEnabled: boolean;
 	chatImagesOnHover: boolean;
 	chatImagesSize: number;
+	chatHideGiphyMessages: boolean;
+	chatGiphyMessageMode: "hide" | "link";
 	chatBadgesEnabled: boolean;
 	chatNicknameCustomizationEnabled: boolean;
 	loadAdditionalFonts: boolean;
 	chatMessageMenuEnabled: boolean;
 	chatMessageMenuUseAddInsteadOfSet: boolean;
 	chatMentionSoundEnabled: boolean;
+	emoteBarEnabled: boolean;
 	/**
 	 * @deprecated Use chatMentionSoundFile instead. This field is kept for backward compatibility only.
 	 */
 	chatMentionSoundSource: string;
 	chatMentionSoundFile: string;
+	chatMentionSoundFileName: string;
 	chatMentionSoundVolume: number;
 	quickAccessLinks: QuickAccessLink[];
 	pinnedStreamers: string[];
@@ -26,10 +32,12 @@ export type TwitchSettings = {
 	streamLatencyReducerMaxThreshold: number;
 	realVideoTimeEnabled: boolean;
 	realVideoTimeFormat12h: boolean;
-	pinnedStreamersEnabled: boolean;
+	realVideoTimeDateMode: RealVideoTimeDateMode;
 	xayoWatchtimeEnabled: boolean;
+	xayoWatchtimePeriod: XayoWatchtimePeriod;
 	channelSection: boolean;
 	chattersEnabled: boolean;
+	hideStories: boolean;
 };
 
 export type TwitchSettingsEvents = {

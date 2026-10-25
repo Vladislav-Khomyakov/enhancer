@@ -28,7 +28,8 @@ export class EnhancerApiHandler extends MessageHandler {
 		sender?: chrome.runtime.MessageSender,
 	): Promise<WorkerApiActions[EnhancerApiAction]["response"]> {
 		if (this.action === "getEnhancerWatchTime") {
-			return this.service.getWatchTime((payload as GetEnhancerWatchTimePayload).username);
+			const { username, period, platform } = payload as GetEnhancerWatchTimePayload;
+			return this.service.getWatchTime(username, period, platform);
 		}
 		if (sender?.tab?.id == null) throw new Error("Enhancer API requests require a browser tab");
 		if (this.action === "disconnectEnhancerApi") {
@@ -37,12 +38,19 @@ export class EnhancerApiHandler extends MessageHandler {
 			return { success: true };
 		}
 		if (this.action === "initializeEnhancerApi") {
-			const { platform, clientId, seed } = payload as InitializeEnhancerApiPayload;
-			return this.service.initialize(sender.tab.id, sender.frameId ?? 0, clientId, platform, seed);
+			const { platform, clientId, knownHash } = payload as InitializeEnhancerApiPayload;
+			return this.service.initialize(sender.tab.id, sender.frameId ?? 0, clientId, platform, knownHash);
 		}
-		const { platform, externalId, clientId, seed } = payload as JoinEnhancerChannelPayload;
+		const { platform, externalId, clientId, knownHash } = payload as JoinEnhancerChannelPayload;
 		return {
-			seed: await this.service.joinChannel(sender.tab.id, sender.frameId ?? 0, clientId, platform, externalId, seed),
+			seed: await this.service.joinChannel(
+				sender.tab.id,
+				sender.frameId ?? 0,
+				clientId,
+				platform,
+				externalId,
+				knownHash,
+			),
 		};
 	}
 }

@@ -1,12 +1,9 @@
 import type { LogEntry } from "$types/shared/logger.types.ts";
-import type {
-	ExtensionMessageDetail,
-	ExtensionResponseDetail,
-	WorkerBroadcast,
-} from "$types/shared/worker/worker.types.ts";
+import type { ExtensionMessageDetail, WorkerBroadcast } from "$types/shared/worker/worker.types.ts";
 
 class BridgeLogger {
 	private static readonly MAX_ENTRIES = 500;
+	private static readonly TRIM_THRESHOLD = BridgeLogger.MAX_ENTRIES * 1.25;
 	private static readonly MAX_DATA_LENGTH = 2000;
 	private static readonly MAX_ENTRY_LENGTH = 8192;
 	private static readonly SENSITIVE_KEY = /authorization|cookie|token|password|secret|api[_-]?key|credential/i;
@@ -16,6 +13,7 @@ class BridgeLogger {
 	private static readonly SENSITIVE_QUERY =
 		/([?&](?:authorization|cookie|token|access_token|refresh_token|password|secret|api[_-]?key|credential)=)[^&#\s]*/gi;
 	private static readonly BEARER_TOKEN = /\bBearer\s+[^\s,;}]+/gi;
+	private static readonly SENSITIVE_HINT = /authorization|cookie|token|password|secret|api[_-]?key|credential|bearer/i;
 	private static entries: LogEntry[] = [];
 
 	constructor(private readonly context: string) {}
@@ -29,7 +27,7 @@ class BridgeLogger {
 	}
 
 	static getLogs(): LogEntry[] {
-		return BridgeLogger.entries.map((entry) => ({ ...entry, data: [...entry.data] }));
+		return BridgeLogger.entries.slice(-BridgeLogger.MAX_ENTRIES).map((entry) => ({ ...entry, data: [...entry.data] }));
 	}
 
 	private add(level: LogEntry["level"], data: unknown[]): void {
@@ -57,7 +55,9 @@ class BridgeLogger {
 			source: "bridge",
 			data: normalizedData,
 		});
-		if (BridgeLogger.entries.length > BridgeLogger.MAX_ENTRIES) BridgeLogger.entries.shift();
+		if (BridgeLogger.entries.length > BridgeLogger.TRIM_THRESHOLD) {
+			BridgeLogger.entries.splice(0, BridgeLogger.entries.length - BridgeLogger.MAX_ENTRIES);
+		}
 		console[level](`Enhancer worker-bridge ${level.toUpperCase()}`, ...normalizedData);
 	}
 
@@ -89,6 +89,7 @@ class BridgeLogger {
 	}
 
 	private sanitize(value: string): string {
+		if (!BridgeLogger.SENSITIVE_HINT.test(value)) return value.slice(0, BridgeLogger.MAX_DATA_LENGTH);
 		return value
 			.replace(BridgeLogger.SENSITIVE_HEADER, "$1[REDACTED]")
 			.replace(BridgeLogger.BEARER_TOKEN, "Bearer [REDACTED]")
@@ -99,6 +100,7 @@ class BridgeLogger {
 }
 
 export default class WorkerBridge {
+	private static readonly ELEMENT_TAG = __channel__ === "canary" ? "enhancer-bridge-canary" : "enhancer-bridge";
 	private readonly logger = new BridgeLogger("worker-bridge");
 	private bridgeElement: HTMLElement | null = null;
 
@@ -111,7 +113,7 @@ export default class WorkerBridge {
 		const observer = new MutationObserver((mutations) => {
 			for (const mutation of mutations) {
 				for (const node of mutation.addedNodes) {
-					if (node instanceof HTMLElement && node.tagName === "ENHANCER-BRIDGE") {
+					if (node instanceof HTMLElement && node.localName === WorkerBridge.ELEMENT_TAG) {
 						this.bridgeElement = node;
 						this.setupListeners();
 						observer.disconnect();
@@ -120,7 +122,7 @@ export default class WorkerBridge {
 				}
 			}
 		});
-		this.bridgeElement = document.querySelector("enhancer-bridge");
+		this.bridgeElement = document.querySelector(WorkerBridge.ELEMENT_TAG);
 		if (this.bridgeElement) {
 			this.setupListeners();
 		} else {
@@ -156,42 +158,24 @@ export default class WorkerBridge {
 				const responseEvent = new CustomEvent<string>("enhancer-response", {
 					detail: JSON.stringify({ messageId, data: response }),
 				});
-				// biome-ignore lint/style/noNonNullAssertion: we are checking it above, it cannot be null
+				// we are checking it above, it cannot be null
 				this.bridgeElement!.dispatchEvent(responseEvent);
 			} catch (error) {
 				const errorEvent = new CustomEvent<string>("enhancer-response", {
 					detail: JSON.stringify({ messageId, error: (error as Error).message }),
 				});
-				// biome-ignore lint/style/noNonNullAssertion: we are checking it above, it cannot be null
+				// we are checking it above, it cannot be null
 				this.bridgeElement!.dispatchEvent(errorEvent);
 			}
 		}) as unknown as EventListener);
 	}
 
 	private setupBroadcastReceiving() {
-		chrome.runtime.onMessage.addListener((message: WorkerBroadcast, _sender, sendResponse) => {
+		chrome.runtime.onMessage.addListener((message: WorkerBroadcast) => {
 			if (!this.bridgeElement || !message.type) return;
-			if (message.type === "enhancer-api-seed-request") {
-				const requestId = message.payload.requestId;
-				const handleResponse = (event: Event) => {
-					const detail = JSON.parse((event as CustomEvent<string>).detail) as {
-						requestId: string;
-						seed: unknown;
-					};
-					if (detail.requestId !== requestId) return;
-					clearTimeout(timeout);
-					this.bridgeElement?.removeEventListener("enhancer-api-seed-response", handleResponse);
-					sendResponse(detail.seed);
-				};
-				const timeout = setTimeout(() => {
-					this.bridgeElement?.removeEventListener("enhancer-api-seed-response", handleResponse);
-					sendResponse(null);
-				}, 2000);
-				this.bridgeElement.addEventListener("enhancer-api-seed-response", handleResponse);
-				this.bridgeElement.dispatchEvent(
-					new CustomEvent<string>("enhancer-api-seed-request", { detail: JSON.stringify(message.payload) }),
-				);
-				return true;
+			if (message.type === "api-environment-changed") {
+				if (window.top === window) location.reload();
+				return;
 			}
 			const broadcastEvent = new CustomEvent<string>("enhancer-broadcast", {
 				detail: JSON.stringify(message),

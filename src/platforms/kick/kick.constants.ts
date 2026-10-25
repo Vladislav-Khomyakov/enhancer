@@ -1,6 +1,8 @@
 import type { KickSettings } from "$types/platforms/kick/kick.settings.types.ts";
 
 export const KICK_DEFAULT_SETTINGS: KickSettings = {
+	forceQualityEnabled: false,
+	forceQualityPreferred: "highest",
 	chatImagesEnabled: false,
 	chatImagesOnHover: false,
 	chatImagesSize: 15,
@@ -17,6 +19,9 @@ export const KICK_DEFAULT_SETTINGS: KickSettings = {
 	streamLatencyReducerMaxThreshold: 6,
 	realVideoTimeEnabled: true,
 	realVideoTimeFormat12h: false,
+	realVideoTimeDateMode: "hover",
+	xayoWatchtimeEnabled: true,
+	xayoWatchtimePeriod: "365d",
 	channelSection: true,
 	_disableExtensionOnDashboard: false,
 };
